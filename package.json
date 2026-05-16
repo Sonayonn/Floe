@@ -1,0 +1,13 @@
+{
+  "name": "floe",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Composable structured-product vault on DeepBook Predict",
+  "license": "MIT",
+  "scripts": {
+    "lint": "pnpm -r --if-present run lint",
+    "test": "pnpm -r --if-present run test",
+    "build": "pnpm -r --if-present run build"
+  },
+  "packageManager": "pnpm@11.1.2"
+}
