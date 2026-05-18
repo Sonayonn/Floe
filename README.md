@@ -29,7 +29,7 @@ _Sui Explorer links coming as packages deploy._
 ## Roadmap progress
 
 - [x] Day 1 — Toolchain, repo, wallet
-- [ ] Day 2 — Move tutorial sprint
+- [x] Day 2 — Move tutorial sprint
 - [ ] Day 3 — DeepBook Spot + Margin
 - [ ] Day 4 — Predict deep dive
 - [ ] Day 5 — Vault Move package v0
