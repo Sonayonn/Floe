@@ -1,0 +1,27 @@
+{
+  "name": "@floe/scripts",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "One-off setup and exploration scripts for Floe",
+  "scripts": {
+    "create-bm": "tsx src/create-balance-manager.ts",
+    "deposit": "tsx src/deposit-to-manager.ts",
+    "limit": "tsx src/place-limit-order.ts",
+    "market": "tsx src/place-market-order.ts",
+    "cancel": "tsx src/cancel-order.ts",
+    "margin-open": "tsx src/margin-open.ts",
+    "margin-close": "tsx src/margin-close.ts",
+    "check-bm": "tsx src/check-manager-balance.ts"
+  },
+  "dependencies": {
+    "@mysten/deepbook-v3": "^0.28.3",
+    "@mysten/sui": "^1.45.2",
+    "dotenv": "^17.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.8.0",
+    "tsx": "^4.22.1",
+    "typescript": "^6.0.3"
+  }
+}
