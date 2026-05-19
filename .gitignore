@@ -31,3 +31,5 @@ packages/move/build/
 
 # Misc
 *.tsbuildinfo
+scripts/data/
+.oracle-monitor-state.json
