@@ -1,7 +1,7 @@
 // scripts/src/deposit-to-manager.ts
 import 'dotenv/config';
 import { DeepBookClient } from '@mysten/deepbook-v3';
-import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
+import { makeSuiClient } from './lib/sui.js';
 import { decodeSuiPrivateKey } from '@mysten/sui/cryptography';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { Transaction } from '@mysten/sui/transactions';
@@ -23,7 +23,7 @@ console.log(`BalanceManager:  ${balanceManagerId}`);
 
 // ─── 2. Construct DeepBookClient with the BM registered ──────────────────────
 
-const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+const suiClient = await makeSuiClient();
 
 const MANAGER_KEY = 'MAIN';
 

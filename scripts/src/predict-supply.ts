@@ -1,6 +1,6 @@
 // scripts/src/predict-supply.ts
 import 'dotenv/config';
-import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
+import { makeSuiClient } from './lib/sui.js';
 import { decodeSuiPrivateKey } from '@mysten/sui/cryptography';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { Transaction } from '@mysten/sui/transactions';
@@ -14,7 +14,7 @@ const plpType = process.env.PREDICT_PLP_TYPE!;
 const { secretKey } = decodeSuiPrivateKey(privateKey);
 const keypair = Ed25519Keypair.fromSecretKey(secretKey);
 const address = keypair.toSuiAddress();
-const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+const suiClient = await makeSuiClient();
 
 // LP 10 DUSDC. With 6 decimals, that's 10_000_000 base units.
 const SUPPLY_AMOUNT_BASE = 10_000_000n;

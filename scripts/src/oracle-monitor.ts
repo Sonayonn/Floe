@@ -59,7 +59,7 @@ console.log(`Previously-seen activated oracles: ${seen.size}\n`);
 while (true) {
   try {
     const oracles = await fetchOracles();
-    const activated = oracles.filter((o) => o.status === 'activated');
+    const activated = oracles.filter((o) => o.status === "active");
 
     if (activated.length === 0 && seen.size === 0) {
       // Quiet idle state — print one dot per poll

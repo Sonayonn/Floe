@@ -1,7 +1,7 @@
 // scripts/src/cancel-order.ts
 import 'dotenv/config';
 import { DeepBookClient } from '@mysten/deepbook-v3';
-import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
+import { makeSuiClient } from './lib/sui.js';
 import { decodeSuiPrivateKey } from '@mysten/sui/cryptography';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { Transaction } from '@mysten/sui/transactions';
@@ -14,7 +14,7 @@ if (!orderId) throw new Error('LAST_ORDER_ID missing — run place-limit-order f
 
 const { secretKey } = decodeSuiPrivateKey(privateKey);
 const keypair = Ed25519Keypair.fromSecretKey(secretKey);
-const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+const suiClient = await makeSuiClient();
 
 const dbClient = new DeepBookClient({
   address: keypair.toSuiAddress(),
