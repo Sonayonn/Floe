@@ -88,6 +88,19 @@ public struct RedeemReceipt {
     vault_id: ID,
     plp_out: u64,
 }
+
+/// Hot-potato for recording a freshly-minted range. Must be settled by
+/// `record_range` in the same PTB so the vault's position table can't desync
+/// from what was actually minted on Predict.
+public struct RangeAuthReceipt {
+    vault_id: ID,
+}
+
+/// Hot-potato for a range redemption round-trip.
+public struct RangeRedeemReceipt {
+    vault_id: ID,
+    position_id: ID,
+}
 /// The vault. Generic over quote asset T (instantiated as DUSDC).
 /// Shared object — any depositor can call `deposit`/`withdraw` against it.
 public struct Vault<phantom T> has key {
@@ -116,6 +129,9 @@ public struct Vault<phantom T> has key {
     // ─── Stratum B: range ladder ───
     positions: Table<ID, RangePosition>,
     position_count: u64,
+    /// Sum of all open-position mark values. Maintained incrementally on
+    /// record/mark/redeem so total_assets stays O(1) instead of iterating.
+    positions_mark_total: u64,
 
     // ─── Stratum C: delta hedge ───
     hedge_margin_manager_id: Option<ID>,
@@ -192,6 +208,7 @@ public fun create_vault<T>(
         plp_price_updated_ms: 0,
         positions: table::new<ID, RangePosition>(ctx),
         position_count: 0,
+        positions_mark_total: 0,
         hedge_margin_manager_id: option::none(),
         hedge_notional: 0,
         hedge_is_short: false,
@@ -247,7 +264,7 @@ public fun idle_value<T>(vault: &Vault<T>): u64 { balance::value(&vault.idle) }
 public fun total_assets<T>(vault: &Vault<T>): u64 {
     let idle = balance::value(&vault.idle);
     let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, 1_000_000_000);
-    idle + plp_value
+    idle + plp_value + vault.positions_mark_total
 }
 
 /// Share price in 6dp fixed point. Returns INITIAL when supply is zero.
@@ -451,6 +468,105 @@ public fun confirm_redeem<T>(
     balance::join(&mut vault.idle, coin::into_balance(dusdc_coin));
 }
 
+// ─── Stratum B: range position ladder (rebalancer-gated) ─────────────────────
+//
+// The vault records each range Floe writes on Predict in `positions`, keyed by
+// the Predict position's object ID. The 1σ strike selection happens off-chain
+// in the rebalancer (reads SVI surface, computes the band); the vault stores
+// the result and includes it in NAV via mark_value_cached.
+
+/// Step 1 of placing a range: authorize the rebalancer to mint. The DUSDC to
+/// fund the mint is moved into the manager separately (deploy_idle-style or a
+/// dedicated fund call); this receipt just enforces that `record_range` runs.
+public fun authorize_range<T>(
+    vault: &mut Vault<T>,
+    cap: &RebalancerCap,
+): RangeAuthReceipt {
+    assert_rebalancer(vault, cap);
+    assert_not_paused(vault);
+    RangeAuthReceipt { vault_id: object::id(vault) }
+}
+
+/// Step 4 of placing a range: record the minted position in the table.
+public fun record_range<T>(
+    vault: &mut Vault<T>,
+    receipt: RangeAuthReceipt,
+    position_id: ID,
+    oracle_id: ID,
+    expiry_ms: u64,
+    lower_strike: u64,
+    upper_strike: u64,
+    size: u64,
+    premium_paid: u64,
+    clock: &Clock,
+) {
+    let RangeAuthReceipt { vault_id } = receipt;
+    assert!(vault_id == object::id(vault), EWrongVault);
+
+    let position = RangePosition {
+        oracle_id,
+        expiry_ms,
+        lower_strike,
+        upper_strike,
+        size,
+        premium_paid,
+        minted_at_ms: clock.timestamp_ms(),
+        mark_value_cached: premium_paid, // initial mark = cost paid
+    };
+
+    table::add(&mut vault.positions, position_id, position);
+    vault.position_count = vault.position_count + 1;
+    vault.positions_mark_total = vault.positions_mark_total + premium_paid;
+}
+
+/// Update the cached mark-to-market value of an open position. Called by the
+/// rebalancer each cycle with the attested current value (drives NAV).
+public fun mark_position<T>(
+    vault: &mut Vault<T>,
+    cap: &RebalancerCap,
+    position_id: ID,
+    new_mark: u64,
+) {
+    assert_rebalancer(vault, cap);
+    assert!(table::contains(&vault.positions, position_id), EPositionNotFound);
+    let old_mark = table::borrow(&vault.positions, position_id).mark_value_cached;
+    vault.positions_mark_total = vault.positions_mark_total - old_mark + new_mark;
+    let pos = table::borrow_mut(&mut vault.positions, position_id);
+    pos.mark_value_cached = new_mark;
+}
+
+/// Step 1 of redeeming a range: remove it from the table, hand back a receipt.
+/// The rebalancer then calls Predict's redeem; payout returns via confirm.
+public fun authorize_redeem_range<T>(
+    vault: &mut Vault<T>,
+    cap: &RebalancerCap,
+    position_id: ID,
+): RangeRedeemReceipt {
+    assert_rebalancer(vault, cap);
+    assert!(table::contains(&vault.positions, position_id), EPositionNotFound);
+
+    // Remove the position record; destructure to drop it (RangePosition has store
+    // but we're done with it once redeemed).
+    let RangePosition {
+        oracle_id: _, expiry_ms: _, lower_strike: _, upper_strike: _,
+        size: _, premium_paid: _, minted_at_ms: _, mark_value_cached,
+    } = table::remove(&mut vault.positions, position_id);
+
+    vault.position_count = vault.position_count - 1;
+    vault.positions_mark_total = vault.positions_mark_total - mark_value_cached;
+    RangeRedeemReceipt { vault_id: object::id(vault), position_id }
+}
+
+/// Step 3 of redeeming: absorb the DUSDC payout back into idle.
+public fun confirm_range_redeem<T>(
+    vault: &mut Vault<T>,
+    receipt: RangeRedeemReceipt,
+    payout: Coin<T>,
+) {
+    let RangeRedeemReceipt { vault_id, position_id: _ } = receipt;
+    assert!(vault_id == object::id(vault), EWrongVault);
+    balance::join(&mut vault.idle, coin::into_balance(payout));
+}
 // ─── Math helper ─────────────────────────────────────────────────────────────
 
 /// Computes a * b / c with u128 intermediate to avoid overflow, rounding DOWN.
