@@ -661,3 +661,14 @@ public fun record_walrus_blob<T>(
 fun mul_div(a: u64, b: u64, c: u64): u64 {
     ((a as u128) * (b as u128) / (c as u128)) as u64
 }
+// ─── Test-only helpers ───────────────────────────────────────────────────────
+
+#[test_only]
+/// Mint a FLOE TreasuryCap for testing, bypassing the OTW init flow.
+public fun test_new_treasury(ctx: &mut TxContext): TreasuryCap<FLOE> {
+    coin::create_treasury_cap_for_testing<FLOE>(ctx)
+}
+
+#[test_only]
+/// Expose total_assets for assertions.
+public fun test_total_assets<T>(vault: &Vault<T>): u64 { total_assets(vault) }
