@@ -19,8 +19,6 @@ use sui::clock::Clock;
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
-const ENotOperator: u64 = 0;
-const ENotRebalancer: u64 = 1;
 const EVaultPaused: u64 = 2;
 const EInsufficientShares: u64 = 3;
 const EZeroAmount: u64 = 4;
@@ -100,6 +98,11 @@ public struct RangeAuthReceipt {
 public struct RangeRedeemReceipt {
     vault_id: ID,
     position_id: ID,
+}
+/// Hot-potato for a hedge adjustment. Must be settled by `record_hedge` in the
+/// same PTB so the vault's hedge accounting matches the actual Margin position.
+public struct HedgeReceipt {
+    vault_id: ID,
 }
 /// The vault. Generic over quote asset T (instantiated as DUSDC).
 /// Shared object — any depositor can call `deposit`/`withdraw` against it.
@@ -566,6 +569,91 @@ public fun confirm_range_redeem<T>(
     let RangeRedeemReceipt { vault_id, position_id: _ } = receipt;
     assert!(vault_id == object::id(vault), EWrongVault);
     balance::join(&mut vault.idle, coin::into_balance(payout));
+}
+
+// ─── Stratum C: delta hedge via DeepBook Margin (rebalancer-gated) ───────────
+//
+// The vault tracks the net hedge it holds (notional + direction). The actual
+// Margin position is opened/closed by the rebalancer in the PTB; Floe records
+// the result so NAV and risk reporting stay accurate. Going live requires Pyth
+// price freshness in the margin PTB (Phase 6.P) — the contract side is complete
+// and Pyth-independent.
+
+/// Authorize a hedge adjustment. Returns a receipt the rebalancer must settle
+/// via `record_hedge` after executing the Margin trade in the same PTB.
+public fun authorize_hedge<T>(
+    vault: &mut Vault<T>,
+    cap: &RebalancerCap,
+): HedgeReceipt {
+    assert_rebalancer(vault, cap);
+    assert_not_paused(vault);
+    HedgeReceipt { vault_id: object::id(vault) }
+}
+
+/// Record the vault's hedge state after a Margin adjustment. `is_short` true
+/// means the hedge is short the underlying (offsetting positive delta).
+/// `margin_manager_id` is recorded the first time a hedge opens.
+public fun record_hedge<T>(
+    vault: &mut Vault<T>,
+    receipt: HedgeReceipt,
+    margin_manager_id: ID,
+    notional: u64,
+    is_short: bool,
+) {
+    let HedgeReceipt { vault_id } = receipt;
+    assert!(vault_id == object::id(vault), EWrongVault);
+
+    if (option::is_none(&vault.hedge_margin_manager_id)) {
+        vault.hedge_margin_manager_id = option::some(margin_manager_id);
+    };
+    vault.hedge_notional = notional;
+    vault.hedge_is_short = is_short;
+}
+
+// ─── Operator functions (config + enclave registration) ──────────────────────
+
+/// Register (or rotate) the authorized Nautilus enclave PCR measurement.
+/// Only the operator can do this. The rebalancer's attestations are checked
+/// against this hash (full verification wired Day 18).
+public fun register_enclave<T>(
+    vault: &mut Vault<T>,
+    cap: &OperatorCap,
+    pcr_hash: vector<u8>,
+) {
+    assert_operator(vault, cap);
+    vault.enclave_pcr_hash = pcr_hash;
+}
+
+/// Update the Stratum A liquidity floor (in basis points). Operator only.
+public fun set_plp_floor<T>(
+    vault: &mut Vault<T>,
+    cap: &OperatorCap,
+    floor_bps: u64,
+) {
+    assert_operator(vault, cap);
+    assert!(floor_bps <= 10_000, EZeroAmount);
+    vault.plp_floor_bps = floor_bps;
+}
+
+/// Pause/unpause user-facing deposit & withdraw (emergency switch). Operator only.
+public fun set_paused<T>(
+    vault: &mut Vault<T>,
+    cap: &OperatorCap,
+    paused: bool,
+) {
+    assert_operator(vault, cap);
+    vault.paused = paused;
+}
+
+/// Append a Walrus blob ID to the on-chain audit index. Rebalancer-gated;
+/// called each rebalance after writing the snapshot to Walrus (wired W3).
+public fun record_walrus_blob<T>(
+    vault: &mut Vault<T>,
+    cap: &RebalancerCap,
+    blob_id: vector<u8>,
+) {
+    assert_rebalancer(vault, cap);
+    vault.walrus_blob_ids.push_back(blob_id);
 }
 // ─── Math helper ─────────────────────────────────────────────────────────────
 
