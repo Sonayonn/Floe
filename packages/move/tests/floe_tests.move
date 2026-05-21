@@ -5,7 +5,7 @@ use sui::test_scenario::{Self as ts, next_tx, ctx};
 use std::unit_test::destroy;
 use sui::coin::{Self, Coin};
 use sui::clock;
-use floe::vault::{Self, Vault, OperatorCap, RebalancerCap, FLOE};
+use floe::floe::{Self as vault, Vault, OperatorCap, RebalancerCap, FLOE};
 
 // A stand-in quote asset for tests. Any type works since Vault is generic.
 public struct TUSD has drop {}

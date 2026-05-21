@@ -10,7 +10,7 @@
 ///                    but cannot withdraw to arbitrary addresses.
 /// User withdrawals flow only through the user-facing `withdraw`, which burns
 /// shares. No capability can drain deposits.
-module floe::floe;
+module floe::vault;
 
 use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin, TreasuryCap};
@@ -48,7 +48,11 @@ const MIN_FIRST_DEPOSIT: u64 = 1_000_000; // 1.0 DUSDC (6dp)
 
 /// OTW: consumed in `init` to create the FLOE currency. Name must match the
 /// module name uppercased. `drop` only, no fields.
+public struct VAULT has drop {}
 
+// ─── The FLOE share token marker ─────────────────────────────────────────────
+
+/// The vault's share token type. Coin<FLOE> is what depositors hold.
 public struct FLOE has drop {}
 
 // ─── Objects ─────────────────────────────────────────────────────────────────
@@ -164,7 +168,7 @@ public struct RebalancerCap has key, store {
 /// vault at creation time (see `create_vault`), so here we only create the
 /// currency metadata and hand the treasury to the publisher temporarily.
 #[allow(deprecated_usage)]
-fun init(witness: FLOE, ctx: &mut TxContext) {
+fun init(witness: VAULT, ctx: &mut TxContext) {
     let (treasury, metadata) = coin::create_currency(
         witness,
         6,                       // decimals — match DUSDC's 6dp

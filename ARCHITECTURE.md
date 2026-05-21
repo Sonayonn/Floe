@@ -314,5 +314,30 @@ constraints.
 
 ---
 
+## On the FLOE token
+
+FLOE is the vault's **share token** — a fully-backed, redeemable claim on the
+vault's net asset value — not a governance or speculative token. It is
+implemented as a native Sui `Coin<FLOE>` (via the Coin standard) rather than a
+plain object receipt, for one reason: composability. As a real fungible coin,
+FLOE can be held in any wallet, transferred, and used as a building block by
+other Sui protocols (e.g. as collateral in a lending market, or as an LP leg),
+which is consistent with Floe's positioning as infrastructure rather than an
+end-app.
+
+Critically, FLOE has **no fixed supply, no presale, no market cap, and no
+tokenomics**. Supply is elastic: FLOE mints on deposit and burns on withdrawal.
+Its value is mechanical — `share_price = total_assets / share_supply` — and
+rises only as the Stratos strategy earns yield. There is nothing to speculate
+on: any deviation between a secondary-market price and NAV is immediately
+arbitraged away, since anyone can mint at NAV by depositing or redeem at NAV by
+withdrawing. FLOE behaves like an ERC-4626 vault share (cf. Yearn yvTokens,
+Lido stETH), not like a protocol governance token.
+
+If Floe introduces protocol governance post-hackathon, that would be a
+*separate* token with distinct mechanics; it is explicitly out of scope for v1
+and intentionally so — the hackathon submission is a structured-product vault,
+not a token launch.
+
 *Last updated: end of Day 4 (May 19, 2026). This document evolves with
 the build.*

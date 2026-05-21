@@ -1,10 +1,13 @@
 # Floe Testnet Deployment
 
-## v0 — 2026-05-21
+## v1 — CANONICAL (2026-05-22) — share token `floe::floe::FLOE`
+- Package ID:   0x262094a517a978302db1c9462139717478021197c1038984035cd46d2ac0b188
+- Publish tx:   GchaTRDCRz21kQWL5kKyc6kCbDx1mebF5MMVCCF7wWGU
+- TreasuryCap:  0x576c8f7007c2560ae7cfad3133a8eed2534c02b819c08bd22efb5862975fa341
+- CoinMetadata: 0xb5a9ef80661af0595eb125339eea1cef3fb1dd545ce11239c8f3d6f278989a39
+- UpgradeCap:   0x4fc3826bdcd7639ef2e43cb4362e9749c71751b596150109ff9b26077f507bf1
+- Module: floe · Share token: FLOE
+
+## v0 — SUPERSEDED (naming wart: token was `vault::VAULT`)
 - Package ID: 0x3317bc83fcbfb208158a123729a38810623c8de6abb650289a0832982a76d34b
-- Publish tx: 6SQ7X5c3Ez5tBfJQPUh5Ak3zpAYLc4iPgSUkFuQeH1cb
-- TreasuryCap: 0xcc3c40ca9672fdf91649074b06d619ecfb9958aa14eeb3c02c49656b1c63d5c2
-- CoinMetadata: 0x55639571e8ca0a3f82f3e835eeacfb87203e1b59ca03b70a584b0922db233b1d
-- UpgradeCap: 0x814b4d17ba31086b4a6ed5d3fa8374d56b9f9c44fe25b53a896c3b8b8e0aa232
-- Module: vault
-- Share token type: VAULT (note: OTW naming — see below)
+- Kept on chain (immutable); not referenced. Superseded by v1 rename.

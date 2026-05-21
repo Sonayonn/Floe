@@ -26,3 +26,8 @@
 - Supply tx: `BjQNfSqzov7g9pkPNHfBHaLt9YSS9E1c1ZQTZiDqvJzm`
 - Withdraw tx: `Hofeg4PkKJhUJKDJx87KMJURPCM9wHbWpiRTdapNbTui`
 - Round-trip loss: −0.000001 DUSDC (rounding only, no slippage).
+
+## Resolved Day 4 (May 20, 2026)
+- ✅ DeepBook market order: fixed via `minSize: 1` quantity bump, RPC failover helper (`lib/sui.ts`).
+- ✅ Predict binary position mint: oracle now active, full `deposit → mint` PTB working. Tx: `ELojQpAZidLTUcsbKwRfbncxevQtGCNgo3HxgdkufCEW`.
+- ✅ Indexer status filter corrected: `"active"` not `"activated"`.
