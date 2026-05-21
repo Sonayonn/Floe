@@ -11,3 +11,9 @@
 ## v0 — SUPERSEDED (naming wart: token was `vault::VAULT`)
 - Package ID: 0x3317bc83fcbfb208158a123729a38810623c8de6abb650289a0832982a76d34b
 - Kept on chain (immutable); not referenced. Superseded by v1 rename.
+
+## Live Vault<DUSDC> instance (2026-05-22)
+- Vault (shared): 0x00b83daae3cee3e706d9479a90ae4375d16932751cc87db567b2bca84c40f0fd
+- OperatorCap:    0x1b5d89db5d5f276b85491a90d5c5f050999f6fe414123670c7b56ac41fad6165
+- RebalancerCap:  0x1dd8e85d4302fe4f2bedee032cf05d81faa633da15530a5e7097ec9761d4be47
+- create_vault tx: HR1VQfi8LENYYonoKcpDp7pS5P143YZhLBKohUH2txrz
