@@ -1,0 +1,22 @@
+{
+  "name": "@floe/rebalancer",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "rebalance": "tsx src/index.ts",
+    "backtest": "tsx src/backtest/run.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mysten/deepbook-v3": "0.28.3",
+    "@mysten/sui": "1.45.2",
+    "@pythnetwork/pyth-sui-js": "3.0.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.1",
+    "typescript": "^5.9.3"
+  }
+}
