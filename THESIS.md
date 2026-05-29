@@ -34,3 +34,29 @@ condors, or basis trades on DeepBook's shared liquidity."
 ## The moat sentence (the uncopyable claim)
 "Most vaults ask you to trust their numbers. Floe proves them: every NAV update
 is computed inside a Nautilus TEE and verified on-chain before it's accepted."
+
+## Competitive frame (from market research, May 2026)
+There IS a "vault infrastructure" category — "Onchain Capital Allocator," ~$10B,
+one of DeFi's fastest-growing. Incumbents:
+- Enzyme (EVM): $147M TVL, 4k+ vaults, "vault-as-a-service," Hedgeweek 2025
+  Blockchain Tech of the Year. Pushing Onyx (modular vault tokenization layer).
+- Sommelier (EVM): strategist-driven cross-chain vaults.
+- Lagoon ($285M), IPOR Fusion ($124M): modular vault frameworks (ERC-7540).
+
+THE GAP ACROSS ALL OF THEM: NAV is self-reported. They run strategy logic on a
+centralized server, post results on-chain, and ask users to TRUST the numbers.
+The infrastructure exists; the verifiability does not.
+
+FLOE'S WIN: TEE-attested NAV via Nautilus. The contract verifies the enclave
+attestation before accepting a NAV update — cryptographic proof the number came
+from the authorized strategy, not a manager fudging it. Structurally impossible
+on EVM/Solana; only Sui's Nautilus closes this gap.
+
+ONE-LINER: "What Enzyme is to Ethereum, Floe is to DeepBook — the vault
+infrastructure layer — except Floe's NAV is cryptographically provable, which
+Enzyme's structurally can't be."
+
+ARCHITECTURE VALIDATION: the EVM vault-infra winners use a foundational-vault +
+higher-level-strategy-composition pattern. Floe's engine/strategy split is the
+same pattern, arrived at independently. We're not novel in structure — we're
+novel in proof.
