@@ -62,7 +62,9 @@ export type RebalanceAction =
   | { kind: 'redeem_plp'; plpAmount: number }                    // Stratum A: PLP -> idle
   | { kind: 'open_range'; oracleId: string; expiryMs: number;    // Stratum B: write a range
       lowerStrike: number; upperStrike: number; size: number }
-  | { kind: 'close_range'; positionId: string }                  // Stratum B: redeem a range
+  | { kind: 'close_range'; positionId: string;                   // Stratum B: redeem a range
+      oracleId: string; expiryMs: number;
+      lowerStrike: number; upperStrike: number }
   | { kind: 'open_hedge'; notional: number; isShort: boolean }   // Stratum C: open/adjust hedge
   | { kind: 'close_hedge' }                                      // Stratum C: unwind hedge
   | { kind: 'noop'; reason: string };                            // explicit "do nothing this cycle"

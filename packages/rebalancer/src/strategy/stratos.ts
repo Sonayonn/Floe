@@ -116,7 +116,14 @@ export class StratosStrategy implements Strategy {
       const innerEdge = halfWidth * p.innerBandFraction;
       const driftedOut = Math.abs(spot - mid) > innerEdge;
       if (daysLeft <= p.minDaysToExpiry || driftedOut) {
-        actions.push({ kind: 'close_range', positionId: pos.positionId });
+        actions.push({
+          kind: 'close_range',
+          positionId: pos.positionId,
+          oracleId: pos.oracleId,
+          expiryMs: pos.expiryMs,
+          lowerStrike: pos.lowerStrike,
+          upperStrike: pos.upperStrike,
+        });
       }
     }
 
