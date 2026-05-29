@@ -12,9 +12,9 @@
  */
 
 import { Transaction, type TransactionObjectArgument } from '@mysten/sui/transactions';
-import { FLOE, FLOE_COIN_TYPE, SUI_SYSTEM } from '../config.ts';
+import { FLOE, PREDICT, SUI_SYSTEM } from '../config.ts';
 
-const T = FLOE_COIN_TYPE; // the vault's quote-asset type parameter <T> = DUSDC
+const T = PREDICT.quoteType; // vault is Vault<DUSDC>; every entry's <T> = DUSDC (the quote asset, NOT the FLOE share token)
 const PKG = FLOE.packageId;
 const MOD = FLOE.moduleName;
 
@@ -73,12 +73,13 @@ export function confirmRedeem(tx: Transaction, receipt: TransactionObjectArgumen
 
 // ─── Stratum B: range ladder ─────────────────────────────────────────────────
 
-/** authorize_range -> RangeAuthReceipt */
-export function authorizeRange(tx: Transaction): TransactionObjectArgument {
-  return tx.moveCall({
+/** authorize_range(vault, cap, amount, ctx) -> (Coin<T>, RangeAuthReceipt) */
+export function authorizeRange(tx: Transaction, amount: bigint): [TransactionObjectArgument, TransactionObjectArgument] {
+  const [coin, receipt] = tx.moveCall({
     target: target('authorize_range'), typeArguments: [T],
-    arguments: [vaultArg(tx), capArg(tx)],
+    arguments: [vaultArg(tx), capArg(tx), tx.pure.u64(amount)],
   });
+  return [coin, receipt];
 }
 
 /** record_range(vault, receipt, position_id, oracle_id, expiry, lo, hi, size, premium, clock) */

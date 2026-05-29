@@ -133,10 +133,8 @@ export async function composeAction(
       const amount6 = toRaw6(action.amount);
       const [coin, receipt] = vault.deployIdle(tx, amount6);
       const plp = predictSupply(tx, coin);
-      // PLP coin lives with the manager model; deposit it back so the manager
-      // custodies it (Model A). For now PLP obtained ~= amount at current price;
-      // reconciled by update_plp_price next cycle.
-      managerDeposit(tx, plp as TransactionObjectArgument);
+      // PLP coin is held by the rebalancer EOA; vault only tracks the quantity.
+      tx.transferObjects([plp], tx.pure.address(clients.address));
       vault.confirmDeploy(tx, receipt, amount6);
       break;
     }
@@ -154,22 +152,22 @@ export async function composeAction(
 
     // ── Stratum B: open a 1σ range ───────────────────────────────────────────
     case 'open_range': {
-      const receipt = vault.authorizeRange(tx);
       const size6 = toRaw6(action.size);
       const lower9 = toRaw9(action.lowerStrike);
       const upper9 = toRaw9(action.upperStrike);
       const expiry = BigInt(action.expiryMs);
 
-      // Fund the manager, then mint from its balance (Model A).
-      const [coin, deployReceipt] = vault.deployIdle(tx, size6);
-      managerDeposit(tx, coin);
-      vault.confirmDeploy(tx, deployReceipt, 0n); // to manager, not PLP
+      // authorize_range now pulls the funding DUSDC from idle and returns it
+      // with the receipt (enforces the Stratum A floor). One receipt, atomic.
+      const [coin, receipt] = vault.authorizeRange(tx, size6);
 
-      // RangeKey is deterministic from (oracle, expiry, strikes). No event.
+      // Fund the manager, then mint the range from its balance.
+      managerDeposit(tx, coin);
       const key = makeRangeKey(tx, action.oracleId, expiry, lower9, upper9);
       predictMintRange(tx, action.oracleId, key, size6);
 
-      // Vault's table key = deterministic id from the same components.
+      // Record the position; premium == funded for a fresh mint, so NAV moves
+      // idle -> positions_mark_total cleanly.
       const positionId = derivePositionId(action.oracleId, expiry, lower9, upper9);
       vault.recordRange(tx, receipt, {
         positionId,

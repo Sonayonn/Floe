@@ -85,9 +85,11 @@ public struct RedeemReceipt {
 
 /// Hot-potato for recording a freshly-minted range. Must be settled by
 /// `record_range` in the same PTB so the vault's position table can't desync
-/// from what was actually minted on Predict.
+/// from what was actually minted on Predict. Carries `funded` — the DUSDC
+/// pulled from idle to fund the mint — so record_range can assert NAV balance.
 public struct RangeAuthReceipt {
     vault_id: ID,
+    funded: u64,
 }
 
 /// Hot-potato for a range redemption round-trip.
@@ -474,16 +476,33 @@ public fun confirm_redeem<T>(
 // in the rebalancer (reads SVI surface, computes the band); the vault stores
 // the result and includes it in NAV via mark_value_cached.
 
-/// Step 1 of placing a range: authorize the rebalancer to mint. The DUSDC to
-/// fund the mint is moved into the manager separately (deploy_idle-style or a
-/// dedicated fund call); this receipt just enforces that `record_range` runs.
+/// Step 1 of placing a range: pull `amount` DUSDC from idle to fund the mint,
+/// hand it to the rebalancer along with a receipt that must be settled by
+/// `record_range` this PTB. Enforces the Stratum A floor (same as deploy_idle)
+/// so range deployment can't drain liquidity below the floor.
 public fun authorize_range<T>(
     vault: &mut Vault<T>,
     cap: &RebalancerCap,
-): RangeAuthReceipt {
+    amount: u64,
+    ctx: &mut TxContext,
+): (Coin<T>, RangeAuthReceipt) {
     assert_rebalancer(vault, cap);
     assert_not_paused(vault);
-    RangeAuthReceipt { vault_id: object::id(vault) }
+    assert!(amount > 0, EZeroAmount);
+    assert!(balance::value(&vault.idle) >= amount, EInsufficientShares);
+
+    // Stratum A floor check (mirrors deploy_idle): idle must stay >= floor of TVL.
+    let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, 1_000_000_000);
+    let tvl = balance::value(&vault.idle) + plp_value + vault.positions_mark_total;
+    let idle_after = balance::value(&vault.idle) - amount;
+    let floor = mul_div(tvl, vault.plp_floor_bps, 10_000);
+    // The funded amount becomes a position mark, so total value is preserved;
+    // we check idle_after + plp + existing marks + this funded amount >= floor.
+    assert!(idle_after + plp_value + vault.positions_mark_total + amount >= floor, EPlpFloorBreached);
+
+    let coin_out = coin::from_balance(balance::split(&mut vault.idle, amount), ctx);
+    let receipt = RangeAuthReceipt { vault_id: object::id(vault), funded: amount };
+    (coin_out, receipt)
 }
 
 /// Step 4 of placing a range: record the minted position in the table.
@@ -499,7 +518,7 @@ public fun record_range<T>(
     premium_paid: u64,
     clock: &Clock,
 ) {
-    let RangeAuthReceipt { vault_id } = receipt;
+    let RangeAuthReceipt { vault_id, funded: _ } = receipt;
     assert!(vault_id == object::id(vault), EWrongVault);
 
     let position = RangePosition {

@@ -49,9 +49,24 @@ export interface RangeBand {
 export function oneSigmaRange(point: SurfacePoint, sigmas = 1): RangeBand {
   const tauYears = Math.max((point.expiryMs - Date.now()) / MS_PER_YEAR, 1e-9);
   const move = point.impliedVol * Math.sqrt(tauYears) * sigmas;
+
+  const rawLower = point.forward * Math.exp(-move);
+  const rawUpper = point.forward * Math.exp(+move);
+
+  // Snap to the oracle's strike grid: strikes must be integer multiples of
+  // tickSize and >= minStrike (assert_valid_strike). Round lower DOWN and
+  // upper UP so the snapped band always contains the computed 1σ band.
+  const tick = point.tickSize > 0 ? point.tickSize : 1;
+  const snap = (v: number, dir: 'down' | 'up') =>
+    (dir === 'down' ? Math.floor(v / tick) : Math.ceil(v / tick)) * tick;
+
+  let lowerStrike = Math.max(snap(rawLower, 'down'), point.minStrike);
+  let upperStrike = Math.max(snap(rawUpper, 'up'), point.minStrike + tick);
+  if (upperStrike <= lowerStrike) upperStrike = lowerStrike + tick;
+
   return {
-    lowerStrike: point.forward * Math.exp(-move),
-    upperStrike: point.forward * Math.exp(+move),
+    lowerStrike,
+    upperStrike,
     impliedVol: point.impliedVol,
     tauYears,
     sigmaMove: point.forward * (Math.exp(move) - 1),
@@ -107,7 +122,9 @@ export async function fetchSurface(): Promise<SurfacePoint[]> {
     const tauYears = Math.max((expiryMs - Date.now()) / MS_PER_YEAR, 1e-9);
     const impliedVol = sviImpliedVol(svi, tauYears);
 
-    points.push({ oracleId: o.oracle_id, expiryMs, spot, forward, impliedVol, svi });
+    const tickSize = dec(o.tick_size ?? s.oracle?.tick_size);
+    const minStrike = dec(o.min_strike ?? s.oracle?.min_strike);
+    points.push({ oracleId: o.oracle_id, expiryMs, spot, forward, impliedVol, svi, tickSize, minStrike });
   }
 
   return points;

@@ -16,15 +16,15 @@
 
 // ─── Market + vault state the strategy sees each cycle ───────────────────────
 
-/** A single point on the SVI volatility surface for one oracle/expiry. */
 export interface SurfacePoint {
   oracleId: string;
   expiryMs: number;
-  spot: number;        // underlying spot price (human units, e.g. USD)
-  forward: number;     // forward price at expiry
-  impliedVol: number;  // ATM implied vol (annualized), from SVI params
-  // raw SVI params, for strategies that want the full smile
+  spot: number;
+  forward: number;
+  impliedVol: number;
   svi: { a: number; b: number; rho: number; m: number; sigma: number };
+  tickSize: number;   // strike grid step (human units), strikes must be multiples
+  minStrike: number;  // lowest valid strike (human units)
 }
 
 /** An open range position the vault currently holds. */

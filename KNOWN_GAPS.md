@@ -39,3 +39,18 @@
   trigger logic just needs to be sane and directionally correct for the demo.
 - The SVI surface gives us everything to compute exact greeks later if desired.
 - NOT a blocker. A refinement, scoped post-hackathon or W4-polish if time allows.
+
+## RESOLVED 2026-05-29 — Full rebalance composition proven (dry-run success)
+- supply_plp + open_range compose into ONE atomic PTB, dry-run Status: success.
+- Events: Supplied, BalanceEvent x2, RangeMinted. ~10 PLP received, range minted.
+- Flags settled:
+  - Flag 1 (position id): centralized derivePositionId, Node crypto, no ext dep.
+  - Flag 2 (mint_range semantics): NOT a size issue — strikes must align to the
+    oracle's tick grid (tick_size=$1, min_strike=$50k). assert_valid_strike code 2
+    fired on fractional-dollar strikes. Fixed by snapping in oneSigmaRange
+    (floor lower / ceil upper to tick, clamp >= minStrike).
+  - Flag 3 (manager withdraw): close_range path not yet exercised (no open
+    position in this run); will verify on a cycle with a position to close.
+- Contract change: authorize_range now pulls funding from idle + returns coin
+  (closed the deploy/record gap the original author flagged as TODO). Republished
+  as v2: 0x2f8f55dacfcac4f0b9d56cf3cfc3fd560dc2ee7d70552947fd8aacc384bd4d09.
