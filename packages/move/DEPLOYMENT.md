@@ -17,3 +17,12 @@
 - OperatorCap:    0x1b5d89db5d5f276b85491a90d5c5f050999f6fe414123670c7b56ac41fad6165
 - RebalancerCap:  0x1dd8e85d4302fe4f2bedee032cf05d81faa633da15530a5e7097ec9761d4be47
 - create_vault tx: HR1VQfi8LENYYonoKcpDp7pS5P143YZhLBKohUH2txrz
+
+## v2 (CANONICAL, 2026-05-29) — authorize_range funds-from-idle fix
+- Package:       0x2f8f55dacfcac4f0b9d56cf3cfc3fd560dc2ee7d70552947fd8aacc384bd4d09
+- Vault<DUSDC>:  0x5629a0ff2e9945a9b00dd04f8aecdf38e3032954a4c48349605e446839365100
+- OperatorCap:   0xc3cdd83bb1a3ab0175750fbe2cf3d75084dac613a0d5c7b7a30c923e744033c6
+- RebalancerCap: 0x1da2511c85e2ea45f7b989b60a923eac4712aca1f983a2612d6b97af02ea55f8
+- UpgradeCap:    0x2face6a77fed3daefb57c51307bf3b92506e8cbbdf607e42de890ebbe011251b
+- TreasuryCap:   0xb3b483c88649c930ed3cdbce07f0da89912115953a59c7aac3c48c8d64aa9342
+- v1 (superseded): 0x262094a5... (authorize_range had no funding path)
