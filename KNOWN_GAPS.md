@@ -31,3 +31,11 @@
 - ✅ DeepBook market order: fixed via `minSize: 1` quantity bump, RPC failover helper (`lib/sui.ts`).
 - ✅ Predict binary position mint: oracle now active, full `deposit → mint` PTB working. Tx: `ELojQpAZidLTUcsbKwRfbncxevQtGCNgo3HxgdkufCEW`.
 - ✅ Indexer status filter corrected: `"active"` not `"activated"`.
+
+## Deliberate v1 choice: geometric delta proxy (not exact BS delta)
+- Stratos estimates net delta via drift-from-band-midpoint, not by
+  differentiating the Black-Scholes price. Documented + commented in stratos.ts.
+- Rationale: the hedge is DEMONSTRATED live on chain (Stratum C proven); the
+  trigger logic just needs to be sane and directionally correct for the demo.
+- The SVI surface gives us everything to compute exact greeks later if desired.
+- NOT a blocker. A refinement, scoped post-hackathon or W4-polish if time allows.
