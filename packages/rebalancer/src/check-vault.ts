@@ -1,5 +1,5 @@
 import { SuiClient, getFullnodeUrl } from '@mysten/sui/client';
-import { FLOE } from './config.ts';
+import { FLOE } from './config';
 
 const client = new SuiClient({ url: getFullnodeUrl('testnet') });
 const obj = await client.getObject({

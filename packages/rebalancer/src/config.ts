@@ -96,7 +96,10 @@ export const ORACLES = {
 // ─── Pyth — for Stratum C margin price freshness ─────────────────────────────
 
 export const PYTH = {
-  stateId: mustEnv('PYTH_STATE_ID'),
+  // Use the SDK-shipped testnet state. The .env originally had 0xd3e79c…
+// (which also works on testnet, both states are active), but DeepBook Margin
+// reads from the SDK's config, so we standardize on the SDK's value.
+stateId: '0x243759059f4c3111179da5878c12f68d612c21a8d54d85edc86164bb18be1c7c',
   wormholeStateId: mustEnv('WORMHOLE_STATE_ID'),
   /** Hermes endpoint (testnet uses hermes-beta). */
   hermesUrl: mustEnv('PYTH_HERMES_URL'),
