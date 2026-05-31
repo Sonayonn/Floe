@@ -137,3 +137,9 @@ of the finalize step. Modern API = proper Currency-registry metadata per vault.
    and pushes update_plp_price every cycle. Same logic the enclave later runs attested (#1).
 3. Delta hedge real greeks — quality pass before demo. Currently a geometric proxy; upgrade
    to exact SVI/BS delta for the vertical-range position. Labeled v1 until then.
+
+## Note: position MTM (mark_position) — same valuation rigor as PLP price
+mark_position currently takes a hand-supplied mark; in production the rebalancer should
+compute each range position's MTM from the SVI oracle (position value given spot/vol/strikes)
+and push it each cycle, exactly like the PLP price heartbeat. Attested version = Phase 7
+(Nautilus). For now marks are set to premium_paid (no assumed gain) = honest placeholder.

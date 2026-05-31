@@ -14,6 +14,8 @@
 import { Transaction } from '@mysten/sui/transactions';
 import { makeClients, type Clients } from './engine/deepbook-clients.ts';
 import { composeRebalancePTB } from './engine/ptb.ts';
+import { computePlpPrice } from './engine/plp.ts';
+import { updatePlpPrice } from './engine/vault.ts';
 import { fetchSurface } from './oracle/svi.ts';
 import { StratosStrategy } from './strategy/stratos.ts';
 import type { MarketState, OpenPosition } from './strategy/types.ts';
@@ -35,14 +37,15 @@ async function readMarketState(clients: Clients): Promise<MarketState> {
   const f = (vaultObj.data?.content as any)?.fields ?? {};
   const idleRaw = BigInt(f.idle ?? 0);
   const plpHeldRaw = BigInt(f.plp_held ?? 0);
-  const plpPriceRaw = BigInt(f.plp_price_cached ?? 0);
+  const plpValuation = await computePlpPrice(sui);   // REAL price from Predict pool state
+  const plpPriceRaw = plpValuation.price9;            // 9dp
   const marksTotalRaw = BigInt(f.positions_mark_total ?? 0);
   const plpFloorBps = Number(f.plp_floor_bps ?? 5000);
 
   // 6dp -> human
   const idle = Number(idleRaw) / 1e6;
   const plpHeld = Number(plpHeldRaw) / 1e6;
-  const plpPrice = Number(plpPriceRaw) / 1e6 || 1; // bootstrap 1.0
+  const plpPrice = Number(plpPriceRaw) / 1e9 || 1; // 9dp -> human; bootstrap 1.0
   const marksTotal = Number(marksTotalRaw) / 1e6;
   const nav = idle + plpHeld * plpPrice + marksTotal;
 
@@ -66,7 +69,9 @@ async function readMarketState(clients: Clients): Promise<MarketState> {
     hedgeNotional: 0,
     hedgeIsShort: false,
     plpFloorBps,
-  };
+    plpPrice9: plpPriceRaw,      // 9dp, for on-chain push
+    plpHeldRaw,
+  } as any;
 }
 
 // ─── One rebalance cycle ─────────────────────────────────────────────────────
@@ -75,6 +80,21 @@ async function cycle(clients: Clients) {
   const state = await readMarketState(clients);
   console.log(`\n[${new Date().toISOString()}] NAV=$${state.nav.toFixed(2)} idle=$${state.idle.toFixed(2)} ` +
     `plp=${state.plpHeld.toFixed(2)} surface=${state.surface.length} expiries`);
+
+  // ── PLP price heartbeat: push the real computed price every cycle so the vault
+  // stays fresh (is_price_fresh) for users' deposits/withdrawals, even on noop.
+  // This is the unattested half of provable NAV; Nautilus attests it in Phase 7.
+  if ((state as any).plpHeldRaw > 0n) {
+    const ptx = new Transaction();
+    updatePlpPrice(ptx, (state as any).plpPrice9, (state as any).plpHeldRaw, []);
+    ptx.setSender(clients.address);
+    if (EXECUTE) {
+      const r = await clients.sui.signAndExecuteTransaction({ signer: clients.signer, transaction: ptx, options: { showEffects: true } });
+      console.log(`PLP price refreshed on-chain: ${r.digest} (${r.effects?.status?.status})`);
+    } else {
+      console.log(`[dry-run] would push PLP price = ${(state as any).plpPrice9} (9dp)`);
+    }
+  }
 
   const actions = strategy.decide(state);
   console.log('Decided actions:', actions.map(a => a.kind).join(', ') || '(none)');
