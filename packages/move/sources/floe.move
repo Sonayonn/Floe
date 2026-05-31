@@ -430,3 +430,206 @@ public fun test_inject_gain<Q, S>(vault: &mut Vault<Q, S>, coin_in: Coin<Q>) {
 public fun test_init_registry(ctx: &mut TxContext) {
     transfer::share_object(VaultRegistry { id: object::new(ctx), vaults: vector[] });
 }
+
+// ─── Stratum A: PLP supply / redeem (ExecCap-gated, policy-checked) ──────────
+public fun deploy_idle<Q, S>(
+    vault: &mut Vault<Q, S>,
+    cap: &ExecCap,
+    amount: u64,
+    ctx: &mut TxContext,
+): (Coin<Q>, DeployReceipt) {
+    assert_exec(vault, cap);
+    assert_not_paused(vault);
+    assert!(amount > 0, EZeroAmount);
+    assert!(vault.policy.enabled_strata & STRATUM_PLP != 0, EStratumDisabled);
+    assert!(balance::value(&vault.idle) >= amount, EInsufficientShares);
+
+    let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, PLP_PRICE_SCALE);
+    let tvl = balance::value(&vault.idle) + plp_value + vault.positions_mark_total;
+    let idle_after = balance::value(&vault.idle) - amount;
+    let floor = mul_div(tvl, vault.policy.plp_floor_bps, BPS_DENOM);
+    assert!(idle_after + plp_value + amount >= floor, EPlpFloorBreached);
+
+    let coin_out = coin::from_balance(balance::split(&mut vault.idle, amount), ctx);
+    (coin_out, DeployReceipt { vault_id: object::id(vault), dusdc_out: amount })
+}
+
+public fun confirm_deploy<Q, S>(vault: &mut Vault<Q, S>, receipt: DeployReceipt, plp_obtained: u64) {
+    let DeployReceipt { vault_id, dusdc_out: _ } = receipt;
+    assert!(vault_id == object::id(vault), EWrongVault);
+    assert!(plp_obtained > 0, EZeroAmount);
+    vault.plp_held = vault.plp_held + plp_obtained;
+}
+
+public fun request_redeem<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap, plp_amount: u64): RedeemReceipt {
+    assert_exec(vault, cap);
+    assert!(plp_amount > 0, EZeroAmount);
+    assert!(vault.plp_held >= plp_amount, EInsufficientShares);
+    vault.plp_held = vault.plp_held - plp_amount;
+    RedeemReceipt { vault_id: object::id(vault), plp_out: plp_amount }
+}
+
+public fun confirm_redeem<Q, S>(vault: &mut Vault<Q, S>, receipt: RedeemReceipt, dusdc_coin: Coin<Q>) {
+    let RedeemReceipt { vault_id, plp_out: _ } = receipt;
+    assert!(vault_id == object::id(vault), EWrongVault);
+    balance::join(&mut vault.idle, coin::into_balance(dusdc_coin));
+}
+
+// ─── Stratum B: range ladder (ExecCap-gated, policy-checked) ─────────────────
+public fun authorize_range<Q, S>(
+    vault: &mut Vault<Q, S>,
+    cap: &ExecCap,
+    oracle_id: ID,
+    amount: u64,
+    ctx: &mut TxContext,
+): (Coin<Q>, RangeAuthReceipt) {
+    assert_exec(vault, cap);
+    assert_not_paused(vault);
+    assert!(amount > 0, EZeroAmount);
+    // POLICY
+    assert!(vault.policy.enabled_strata & STRATUM_RANGE != 0, EStratumDisabled);
+    assert!(vault.policy.allowed_oracles.contains(&oracle_id), EOracleNotAllowed);
+    assert!(amount <= vault.policy.max_position_size, EPositionTooLarge);
+    assert!(vault.positions_mark_total + amount <= vault.policy.max_total_exposure, EExposureExceeded);
+    // FLOOR
+    assert!(balance::value(&vault.idle) >= amount, EInsufficientShares);
+    let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, PLP_PRICE_SCALE);
+    let tvl = balance::value(&vault.idle) + plp_value + vault.positions_mark_total;
+    let idle_after = balance::value(&vault.idle) - amount;
+    let floor = mul_div(tvl, vault.policy.plp_floor_bps, BPS_DENOM);
+    assert!(idle_after + plp_value + vault.positions_mark_total + amount >= floor, EPlpFloorBreached);
+
+    let coin_out = coin::from_balance(balance::split(&mut vault.idle, amount), ctx);
+    (coin_out, RangeAuthReceipt { vault_id: object::id(vault), funded: amount })
+}
+
+public fun record_range<Q, S>(
+    vault: &mut Vault<Q, S>,
+    receipt: RangeAuthReceipt,
+    position_id: ID,
+    oracle_id: ID,
+    expiry_ms: u64,
+    lower_strike: u64,
+    upper_strike: u64,
+    size: u64,
+    premium_paid: u64,
+    clock: &Clock,
+) {
+    let RangeAuthReceipt { vault_id, funded: _ } = receipt;
+    assert!(vault_id == object::id(vault), EWrongVault);
+    let position = RangePosition {
+        oracle_id, expiry_ms, lower_strike, upper_strike,
+        size, premium_paid, minted_at_ms: clock.timestamp_ms(),
+        mark_value_cached: premium_paid,
+    };
+    table::add(&mut vault.positions, position_id, position);
+    vault.position_count = vault.position_count + 1;
+    vault.positions_mark_total = vault.positions_mark_total + premium_paid;
+}
+
+public fun mark_position<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap, position_id: ID, new_mark: u64) {
+    assert_exec(vault, cap);
+    assert!(table::contains(&vault.positions, position_id), EPositionNotFound);
+    let old_mark = table::borrow(&vault.positions, position_id).mark_value_cached;
+    vault.positions_mark_total = vault.positions_mark_total - old_mark + new_mark;
+    let pos = table::borrow_mut(&mut vault.positions, position_id);
+    pos.mark_value_cached = new_mark;
+}
+
+public fun authorize_redeem_range<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap, position_id: ID): RangeRedeemReceipt {
+    assert_exec(vault, cap);
+    assert!(table::contains(&vault.positions, position_id), EPositionNotFound);
+    let RangePosition {
+        oracle_id: _, expiry_ms: _, lower_strike: _, upper_strike: _,
+        size: _, premium_paid: _, minted_at_ms: _, mark_value_cached,
+    } = table::remove(&mut vault.positions, position_id);
+    vault.position_count = vault.position_count - 1;
+    vault.positions_mark_total = vault.positions_mark_total - mark_value_cached;
+    RangeRedeemReceipt { vault_id: object::id(vault), position_id }
+}
+
+public fun confirm_range_redeem<Q, S>(vault: &mut Vault<Q, S>, receipt: RangeRedeemReceipt, payout: Coin<Q>) {
+    let RangeRedeemReceipt { vault_id, position_id: _ } = receipt;
+    assert!(vault_id == object::id(vault), EWrongVault);
+    balance::join(&mut vault.idle, coin::into_balance(payout));
+}
+
+// ─── Stratum C: hedge (ExecCap-gated, policy-checked) ────────────────────────
+public fun authorize_hedge<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap): HedgeReceipt {
+    assert_exec(vault, cap);
+    assert_not_paused(vault);
+    assert!(vault.policy.enabled_strata & STRATUM_HEDGE != 0, EStratumDisabled);
+    HedgeReceipt { vault_id: object::id(vault) }
+}
+
+public fun record_hedge<Q, S>(
+    vault: &mut Vault<Q, S>,
+    receipt: HedgeReceipt,
+    margin_manager_id: ID,
+    notional: u64,
+    is_short: bool,
+) {
+    let HedgeReceipt { vault_id } = receipt;
+    assert!(vault_id == object::id(vault), EWrongVault);
+    // POLICY: notional must respect the leverage ceiling vs current NAV.
+    let nav = total_assets(vault);
+    let max_notional = mul_div(nav, vault.policy.max_leverage_bps, BPS_DENOM);
+    assert!(notional <= max_notional, ELeverageExceeded);
+    if (option::is_none(&vault.hedge_margin_manager_id)) {
+        vault.hedge_margin_manager_id = option::some(margin_manager_id);
+    };
+    vault.hedge_notional = notional;
+    vault.hedge_is_short = is_short;
+}
+
+// ─── Stratum A: attested PLP price (ExecCap-gated) ───────────────────────────
+public fun update_plp_price<Q, S>(
+    vault: &mut Vault<Q, S>,
+    cap: &ExecCap,
+    new_price: u64,
+    plp_held: u64,
+    _attestation: vector<u8>,
+    clock: &Clock,
+) {
+    assert_exec(vault, cap);
+    assert!(new_price > 0, EZeroAmount);
+    // TODO(Phase 7): verify _attestation against vault.enclave_pcr_hash.
+    vault.plp_price_cached = new_price;
+    vault.plp_held = plp_held;
+    vault.plp_price_updated_ms = clock.timestamp_ms();
+}
+
+// ─── Owner config (governance) ───────────────────────────────────────────────
+public fun register_enclave<Q, S>(vault: &mut Vault<Q, S>, cap: &OwnerCap, pcr_hash: vector<u8>) {
+    assert_owner(vault, cap);
+    vault.enclave_pcr_hash = pcr_hash;
+}
+
+public fun set_paused<Q, S>(vault: &mut Vault<Q, S>, cap: &OwnerCap, paused: bool) {
+    assert_owner(vault, cap);
+    vault.paused = paused;
+}
+
+// ─── Curator config ──────────────────────────────────────────────────────────
+public fun set_policy<Q, S>(vault: &mut Vault<Q, S>, cap: &CuratorCap, policy: PolicyConfig) {
+    assert_curator_cap(vault, cap);
+    vault.policy = policy;
+}
+
+public fun set_fees<Q, S>(vault: &mut Vault<Q, S>, cap: &CuratorCap, mgmt_bps: u64, perf_bps: u64, recipient: address) {
+    assert_curator_cap(vault, cap);
+    vault.fees.management_fee_bps = mgmt_bps;
+    vault.fees.performance_fee_bps = perf_bps;
+    vault.fees.fee_recipient = recipient;
+}
+
+public fun set_strategy_blob<Q, S>(vault: &mut Vault<Q, S>, cap: &CuratorCap, blob: vector<u8>) {
+    assert_curator_cap(vault, cap);
+    vault.strategy_config_blob = blob;
+}
+
+// ─── Audit (ExecCap-gated) ───────────────────────────────────────────────────
+public fun record_walrus_blob<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap, blob_id: vector<u8>) {
+    assert_exec(vault, cap);
+    vault.walrus_blob_ids.push_back(blob_id);
+}
