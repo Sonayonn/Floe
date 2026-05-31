@@ -125,3 +125,15 @@ for speed on the critical path. When the SDK templates+publishes a share module 
 (Phase 3), switch the template to coin_registry::new_currency_with_otw + finalize_registration
 (two-step publish). The SDK already orchestrates multi-step deploy, so it's the right owner
 of the finalize step. Modern API = proper Currency-registry metadata per vault.
+
+## COMMITTED FIXES (all three, by end of project — not optional)
+1. Provable NAV / Nautilus attestation (THE MOAT) — Phase 7. update_plp_price currently
+   ignores its _attestation arg; register_enclave's PCR is unverified. Fix: enclave signs
+   the PLP valuation, Move verifies attestation vs registered PCR before accepting. At
+   minimum ONE genuinely attested NAV update on chain for the demo.
+2. PLP valuation (the unattested half of the moat) — near-term (exercise pass / Phase 2).
+   update_plp_price is operator-set; nothing pushes it, so is_price_fresh soft-locks the
+   vault ~1h after PLP is held. Fix: rebalancer computes PLP value from Predict vault state
+   and pushes update_plp_price every cycle. Same logic the enclave later runs attested (#1).
+3. Delta hedge real greeks — quality pass before demo. Currently a geometric proxy; upgrade
+   to exact SVI/BS delta for the vertical-range position. Labeled v1 until then.
