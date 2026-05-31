@@ -34,7 +34,7 @@ aToken-style composability), heavier. Recommendation: ship (A), design for (B) l
 v2 vault live; full engine; one real automated rebalance on chain
 (tx 3UhuZj6gesg9d5u4X8pP3tnYUk4FUPSwHEHK7736oqGf — PLP supply + 1σ range mint, atomic PTB).
 
-### Phase 1 — Platform primitive (contract v3)
+### Phase 1 — Platform primitive (contract v3)  ✅ DONE (factory vault live, policy-gated rebalance proven: tx 3Z1Xdh4S...)
 Goal: factory-deployable, curator-owned, policy-constrained, fee-bearing vault.
 - Role separation: owner (governance) / curator (sets policy+strategy+fees, earns) / rebalancer (enclave)
 - PolicyConfig (enforced in authorize_range/authorize_hedge): allowed_oracles, max_position_size,

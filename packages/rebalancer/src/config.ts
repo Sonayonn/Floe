@@ -24,32 +24,32 @@ export const SUI_PRIVATE_KEY = mustEnv('SUI_PRIVATE_KEY');
 
 export const FLOE = {
   /** v1 package (canonical). v0 = 0x3317bc83… exists on chain but is superseded. */
-  packageId: '0x2f8f55dacfcac4f0b9d56cf3cfc3fd560dc2ee7d70552947fd8aacc384bd4d09',
+  packageId: '0x0fd9662dc900bce48de57a9d1ac6e98d02ff1ce4b1f49b2393e4a776b40d8a9d',
 
   /** The live Vault<DUSDC> shared object. */
-  vaultId: '0x5629a0ff2e9945a9b00dd04f8aecdf38e3032954a4c48349605e446839365100',
+  vaultId: '0xea332cc1ae1a4d0903240bc3a65cea4b0894e6a78d4c10b3153cec79a9a8bfbe',
 
   /** Operator authority — config, enclave registration, pause. */
-  operatorCapId: '0xc3cdd83bb1a3ab0175750fbe2cf3d75084dac613a0d5c7b7a30c923e744033c6',
+  ownerCapId: '0x96dd8474eea55f9c7602789e6310b064b9b96549edb3123d2f070e74d4868103',
 
   /** Rebalancer authority — strategy execution (deploy/range/hedge). */
-  rebalancerCapId: '0x1da2511c85e2ea45f7b989b60a923eac4712aca1f983a2612d6b97af02ea55f8',
+  execCapId: '0x8671ff2e5668b00aa40eb2d7c903e3d239994ccc27577139d6b33d6e26f12aef',
+  curatorCapId: '0xd197c4984907a8d2d9bc432c23281073b490089b91e3511d51dd373dea9e12a8',
+  registryId: '0xb1fe225b5e712b8ee2c51a7e76ac0c27732a29834367883004ce358ccb9b1762',
+  sharePackageId: '0xf49b15cd71c0a9cb7a63ddbcd3a425ec3942ce953a0a3b40b4c0f5f0767f8c23',
+  shareType: '0xf49b15cd71c0a9cb7a63ddbcd3a425ec3942ce953a0a3b40b4c0f5f0767f8c23::share::SHARE',
 
-  /** TreasuryCap<FLOE> is locked inside the Vault; nothing should reference it externally. */
-  // treasuryCap: locked in Vault
 
-  /** Currency metadata (immutable, frozen by init). */
-  coinMetadataId: '0xb5a9ef80661af0595eb125339eea1cef3fb1dd545ce11239c8f3d6f278989a39',
 
   /** UpgradeCap for the package — kept by operator, used for future upgrades. */
-  upgradeCapId: '0x2face6a77fed3daefb57c51307bf3b92506e8cbbdf607e42de890ebbe011251b',
+  upgradeCapId: '0xe3f3762eddf5e0cbafb5762baab8d374eebae60397d350fd2993c1ccba06ff20',
 
   /** Module name within the package. */
   moduleName: 'floe',
 } as const;
 
 /** Convenience: fully-qualified Move type for the FLOE share token. */
-export const FLOE_COIN_TYPE = `${FLOE.packageId}::${FLOE.moduleName}::FLOE` as const;
+export const FLOE_SHARE_TYPE = FLOE.shareType;
 
 // ─── DeepBook — the protocol Floe composes on ────────────────────────────────
 

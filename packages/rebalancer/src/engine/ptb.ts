@@ -159,7 +159,7 @@ export async function composeAction(
 
       // authorize_range now pulls the funding DUSDC from idle and returns it
       // with the receipt (enforces the Stratum A floor). One receipt, atomic.
-      const [coin, receipt] = vault.authorizeRange(tx, size6);
+      const [coin, receipt] = vault.authorizeRange(tx, action.oracleId, size6);
 
       // Fund the manager, then mint the range from its balance.
       managerDeposit(tx, coin);

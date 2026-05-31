@@ -13,7 +13,7 @@ const tx = new Transaction();
 const [c] = tx.splitCoins(tx.object(coins.data[0].coinObjectId), [AMOUNT]);
 const [shares] = tx.moveCall({
   target: `${FLOE.packageId}::${FLOE.moduleName}::deposit`,
-  typeArguments: [DUSDC],
+  typeArguments: [DUSDC, FLOE.shareType],
   arguments: [tx.object(FLOE.vaultId), c, tx.object(SUI_SYSTEM.clock)],
 });
 tx.transferObjects([shares], address);

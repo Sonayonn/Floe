@@ -40,3 +40,11 @@
   - Share TreasuryCap (consumed into vault): 0xa0edc224...
 - Policy: allowed oracle = BTC Jun-5 (0xb795...), max_pos 1000, max_exp 10000, 3x lev, all strata, 50% floor
 - Fees: 2% mgmt, 20% perf, recipient = deployer
+
+## v3 FIRST LIVE REBALANCE (Phase 1 closed)
+- Seed deposit (first deposit into a factory vault, mints Coin<SHARE>): 4TStrNovmDyW2BGoSZrrydMWhTqipt8eDBomdKhn8TsL
+- First v3 rebalance (supply_plp + open_range, one atomic PTB, policy-gated):
+  3Z1Xdh4Sqq61rQ4EwnZJHCBvbKe5LVBg3USJRHSwdGMQ
+  - Stratum A: PLP supply (Supplied event)
+  - Stratum B: 1σ range mint BTC Jun-5, $70,988–$76,293 (RangeMinted event)
+  - authorize_range passed v3 policy checks live (oracle allowed, size<=max, floor intact)
