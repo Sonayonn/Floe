@@ -11,6 +11,7 @@ use sui::coin;
 /// One-time witness. Name = module name uppercased.
 public struct SHARE has drop {}
 
+#[allow(deprecated_usage)]
 fun init(witness: SHARE, ctx: &mut TxContext) {
     let (treasury, metadata) = coin::create_currency(
         witness,

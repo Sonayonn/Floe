@@ -118,3 +118,10 @@ Where it lands:
 
 NOT a what-next. Built, live, shown on Floe. Bounded so it strengthens (not muddles) the
 DeepBook structured-products thesis: the layer is general enough that agents build on it too.
+
+## Note (Phase 3 SDK): adopt coin_registry::new_currency_with_otw for templated share modules
+The reference vault's share module uses the (deprecated-but-working) coin::create_currency
+for speed on the critical path. When the SDK templates+publishes a share module per vault
+(Phase 3), switch the template to coin_registry::new_currency_with_otw + finalize_registration
+(two-step publish). The SDK already orchestrates multi-step deploy, so it's the right owner
+of the finalize step. Modern API = proper Currency-registry metadata per vault.
