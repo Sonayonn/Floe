@@ -1,15 +1,15 @@
-/// Floe — a Sui-native structured-product vault on DeepBook Predict.
+/// Floe — the verifiable, options-native vault LAYER for Sui.
 ///
-/// Runs the "Floe Stratos" strategy: PLP base yield (Stratum A) + active
-/// vertical-range ladder (Stratum B) + delta hedge via Margin (Stratum C),
-/// all delta-neutral, TEE-attested, and Walrus-audited.
+/// v3: factory-deployable, curator-owned, policy-constrained, fee-bearing vaults,
+/// generic over quote asset Q and per-vault share Coin S. Provable NAV (Nautilus),
+/// audited history (Walrus), private alpha (Seal) are layer guarantees every vault
+/// inherits. Agents operate vaults via attenuated ExecCaps (v3.1).
 ///
-/// This module holds user funds. Two capabilities gate privileged actions:
-///   - OperatorCap:  config + enclave registration. Cannot move funds.
-///   - RebalancerCap: strategy execution. Can move funds *within strategy*
-///                    but cannot withdraw to arbitrary addresses.
-/// User withdrawals flow only through the user-facing `withdraw`, which burns
-/// shares. No capability can drain deposits.
+/// Capabilities (attenuation model):
+///   OwnerCap   — governance: pause, register enclave. No fund movement.
+///   CuratorCap — configures the vault: policy, fees, strategy blob; (v3.1) agents.
+///   ExecCap    — execution authority. Full when mandate=None (rebalancer/enclave);
+///                attenuated when mandate=Some (agent, narrowed + revocable, v3.1).
 module floe::floe;
 
 use sui::balance::{Self, Balance};
@@ -18,7 +18,6 @@ use sui::table::{Self, Table};
 use sui::clock::Clock;
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
-
 const EVaultPaused: u64 = 2;
 const EInsufficientShares: u64 = 3;
 const EZeroAmount: u64 = 4;
@@ -27,34 +26,32 @@ const EPlpFloorBreached: u64 = 6;
 const EPositionNotFound: u64 = 7;
 const EWrongVault: u64 = 8;
 const ESharesExceedSupply: u64 = 9;
+// v3 policy errors
+const EOracleNotAllowed: u64 = 10;
+const EPositionTooLarge: u64 = 11;
+const EExposureExceeded: u64 = 12;
+const EStratumDisabled: u64 = 13;
+const ELeverageExceeded: u64 = 14;
+// v3.1 mandate errors (reserved)
+const EMandateExpired: u64 = 15;
+const EMandateRevoked: u64 = 16;
+const EMandateCyclesExhausted: u64 = 17;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-
-/// PLP price is considered stale after this long. Deposits/withdrawals refuse
-/// to use a NAV older than this to prevent minting/burning against stale value.
-const PRICE_STALENESS_LIMIT_MS: u64 = 3_600_000; // 1 hour
-
-/// Initial share price when supply is zero: 1.0 in 6-decimal fixed point.
-const INITIAL_SHARE_PRICE: u64 = 1_000_000;
-
-/// Default Stratum A floor: 50% of TVL must stay liquid as PLP/idle.
+const PRICE_STALENESS_LIMIT_MS: u64 = 3_600_000;
+const INITIAL_SHARE_PRICE: u64 = 1_000_000;       // 1.0 in 6dp
 const DEFAULT_PLP_FLOOR_BPS: u64 = 5_000;
+const MIN_FIRST_DEPOSIT: u64 = 1_000_000;
+const MS_PER_YEAR: u64 = 31_557_600_000;          // 365.25 days
+const BPS_DENOM: u64 = 10_000;
+const PLP_PRICE_SCALE: u64 = 1_000_000_000;       // 9dp
 
-/// Minimum first deposit to bootstrap the vault. Prevents share-price
-/// inflation attacks where a tiny first deposit lets an attacker manipulate
-/// the price for subsequent depositors.
-const MIN_FIRST_DEPOSIT: u64 = 1_000_000; // 1.0 DUSDC (6dp)
-// ─── One-time witness for the FLOE share token ───────────────────────────────
+// Stratum bitmask for PolicyConfig.enabled_strata
+const STRATUM_PLP: u8 = 1;
+const STRATUM_RANGE: u8 = 2;
+const STRATUM_HEDGE: u8 = 4;
 
-/// OTW: consumed in `init` to create the FLOE currency. Name must match the
-/// module name uppercased. `drop` only, no fields.
-
-public struct FLOE has drop {}
-
-// ─── Objects ─────────────────────────────────────────────────────────────────
-
-/// A single vertical-range position the vault holds on Predict.
-/// Stored in the vault's `positions` table, keyed by the Predict position's ID.
+// ─── Position + hot-potato receipts ──────────────────────────────────────────
 public struct RangePosition has store {
     oracle_id: ID,
     expiry_ms: u64,
@@ -63,147 +60,161 @@ public struct RangePosition has store {
     size: u64,
     premium_paid: u64,
     minted_at_ms: u64,
-    /// Last attested mark-to-market value, used in NAV. Updated by rebalancer.
     mark_value_cached: u64,
 }
 
-/// Hot-potato receipt for a DUSDC deployment. Zero abilities — must be consumed
-/// by `confirm_deploy` in the same PTB. Guarantees the rebalancer reports back
-/// how much PLP was obtained for the DUSDC it took, so vault accounting can't
-/// silently desync from reality.
-public struct DeployReceipt {
-    vault_id: ID,
-    dusdc_out: u64,
-}
+public struct DeployReceipt { vault_id: ID, dusdc_out: u64 }
+public struct RedeemReceipt { vault_id: ID, plp_out: u64 }
+public struct RangeAuthReceipt { vault_id: ID, funded: u64 }
+public struct RangeRedeemReceipt { vault_id: ID, position_id: ID }
+public struct HedgeReceipt { vault_id: ID }
 
-/// Hot-potato receipt for a PLP redemption. Must be consumed by
-/// `confirm_redeem` in the same PTB.
-public struct RedeemReceipt {
-    vault_id: ID,
-    plp_out: u64,
-}
-
-/// Hot-potato for recording a freshly-minted range. Must be settled by
-/// `record_range` in the same PTB so the vault's position table can't desync
-/// from what was actually minted on Predict. Carries `funded` — the DUSDC
-/// pulled from idle to fund the mint — so record_range can assert NAV balance.
-public struct RangeAuthReceipt {
-    vault_id: ID,
-    funded: u64,
-}
-
-/// Hot-potato for a range redemption round-trip.
-public struct RangeRedeemReceipt {
-    vault_id: ID,
-    position_id: ID,
-}
-/// Hot-potato for a hedge adjustment. Must be settled by `record_hedge` in the
-/// same PTB so the vault's hedge accounting matches the actual Margin position.
-public struct HedgeReceipt {
-    vault_id: ID,
-}
-/// The vault. Generic over quote asset T (instantiated as DUSDC).
-/// Shared object — any depositor can call `deposit`/`withdraw` against it.
-public struct Vault<phantom T> has key {
-    id: UID,
-
-    // ─── Control ───
-    operator: address,
-    paused: bool,
-
-    // ─── DeepBook account references (created externally, IDs held here) ───
-    balance_manager_id: ID,
-    predict_manager_id: ID,
-
-    // ─── Share token ───
-    treasury: TreasuryCap<FLOE>,
-    share_supply: u64,
-
-    // ─── Custody ───
-    idle: Balance<T>,            // deposited, not yet deployed
-
-    // ─── Stratum A: PLP ───
-    plp_held: u64,               // PLP coin balance the vault holds
-    plp_price_cached: u64,       // attested PLP price, 9dp
-    plp_price_updated_ms: u64,   // staleness guard
-
-    // ─── Stratum B: range ladder ───
-    positions: Table<ID, RangePosition>,
-    position_count: u64,
-    /// Sum of all open-position mark values. Maintained incrementally on
-    /// record/mark/redeem so total_assets stays O(1) instead of iterating.
-    positions_mark_total: u64,
-
-    // ─── Stratum C: delta hedge ───
-    hedge_margin_manager_id: Option<ID>,
-    hedge_notional: u64,
-    hedge_is_short: bool,
-
-    // ─── Auditability (Walrus, wired in W3) ───
-    walrus_blob_ids: vector<vector<u8>>,
-
-    // ─── Config ───
-    enclave_pcr_hash: vector<u8>,
+// ─── Policy + fees (curator-set, contract-enforced) ──────────────────────────
+public struct PolicyConfig has store, copy, drop {
+    allowed_oracles: vector<ID>,
+    max_position_size: u64,
+    max_total_exposure: u64,
+    max_leverage_bps: u64,
+    enabled_strata: u8,
     plp_floor_bps: u64,
 }
 
-/// Held by the deployer/governance. Config + enclave registration. No fund movement.
-public struct OperatorCap has key, store {
+public struct FeeConfig has store, copy, drop {
+    management_fee_bps: u64,
+    performance_fee_bps: u64,
+    fee_recipient: address,
+    high_water_mark: u64,   // peak share_price seen (6dp)
+    last_accrued_ms: u64,
+}
+
+// ─── Agent mandate (attenuation; issued in v3.1) ─────────────────────────────
+public struct Mandate has store, drop {
+    agent_id: ID,
+    authorized_by: address,
+    expiry_ms: u64,
+    max_cycles: u64,
+    cycles_used: u64,
+    revoked: bool,
+}
+
+// ─── The vault ───────────────────────────────────────────────────────────────
+/// Generic over quote asset Q and per-vault share Coin S.
+public struct Vault<phantom Q, phantom S> has key {
     id: UID,
-    vault_id: ID,
-}
-
-/// Held by the Nautilus enclave. Authorizes strategy execution only.
-public struct RebalancerCap has key, store {
-    id: UID,
-    vault_id: ID,
-}
-
-// ─── Init ────────────────────────────────────────────────────────────────────
-
-/// Runs once at publish. Creates the FLOE currency and transfers the
-/// publisher the TreasuryCap-bearing... no — the TreasuryCap goes INTO the
-/// vault at creation time (see `create_vault`), so here we only create the
-/// currency metadata and hand the treasury to the publisher temporarily.
-#[allow(deprecated_usage)]
-fun init(witness: FLOE, ctx: &mut TxContext) {
-    let (treasury, metadata) = coin::create_currency(
-        witness,
-        6,                       // decimals — match DUSDC's 6dp
-        b"FLOE",                 // symbol
-        b"Floe Vault Share",     // name
-        b"Share token for the Floe Stratos structured-product vault",
-        option::none(),          // icon url — set later
-        ctx,
-    );
-
-    // Metadata is immutable public info.
-    transfer::public_freeze_object(metadata);
-
-    // TreasuryCap goes to the publisher, who calls `create_vault` to lock it
-    // inside a Vault. Until then it's owned by the deployer.
-    transfer::public_transfer(treasury, ctx.sender());
-}
-
-// ─── Vault creation ──────────────────────────────────────────────────────────
-
-/// Create and share a Vault, consuming the TreasuryCap so only the vault can
-/// mint/burn FLOE thereafter. Returns the two capabilities to the caller.
-public fun create_vault<T>(
-    treasury: TreasuryCap<FLOE>,
+    owner: address,
+    curator: address,
+    paused: bool,
     balance_manager_id: ID,
     predict_manager_id: ID,
+    share_treasury: TreasuryCap<S>,
+    share_supply: u64,
+    idle: Balance<Q>,
+    plp_held: u64,
+    plp_price_cached: u64,
+    plp_price_updated_ms: u64,
+    positions: Table<ID, RangePosition>,
+    position_count: u64,
+    positions_mark_total: u64,
+    hedge_margin_manager_id: Option<ID>,
+    hedge_notional: u64,
+    hedge_is_short: bool,
+    walrus_blob_ids: vector<vector<u8>>,
+    enclave_pcr_hash: vector<u8>,
+    policy: PolicyConfig,
+    fees: FeeConfig,
+    strategy_config_blob: vector<u8>,
+}
+
+// ─── Capabilities ────────────────────────────────────────────────────────────
+public struct OwnerCap has key, store { id: UID, vault_id: ID }
+public struct CuratorCap has key, store { id: UID, vault_id: ID }
+public struct ExecCap has key, store { id: UID, vault_id: ID, mandate: Option<Mandate> }
+
+// ─── Registry (layer directory) ──────────────────────────────────────────────
+public struct VaultInfo has store, copy, drop {
+    vault_id: ID,
+    curator: address,
+    name: vector<u8>,
+    strategy_kind: vector<u8>,
+}
+public struct VaultRegistry has key { id: UID, vaults: vector<VaultInfo> }
+
+// ─── Init: create the shared registry once at publish ────────────────────────
+fun init(ctx: &mut TxContext) {
+    transfer::share_object(VaultRegistry { id: object::new(ctx), vaults: vector[] });
+}
+
+// ─── Config constructors (used by SDK / CLI to build policy + fees) ──────────
+public fun new_policy(
+    allowed_oracles: vector<ID>,
+    max_position_size: u64,
+    max_total_exposure: u64,
+    max_leverage_bps: u64,
+    enabled_strata: u8,
+    plp_floor_bps: u64,
+): PolicyConfig {
+    PolicyConfig {
+        allowed_oracles, max_position_size, max_total_exposure,
+        max_leverage_bps, enabled_strata, plp_floor_bps,
+    }
+}
+
+public fun new_fees(
+    management_fee_bps: u64,
+    performance_fee_bps: u64,
+    fee_recipient: address,
+): FeeConfig {
+    FeeConfig {
+        management_fee_bps, performance_fee_bps, fee_recipient,
+        high_water_mark: INITIAL_SHARE_PRICE, last_accrued_ms: 0,
+    }
+}
+
+/// Default policy: all strata on, generous caps. Curators tighten as needed.
+public fun default_policy(allowed_oracles: vector<ID>): PolicyConfig {
+    PolicyConfig {
+        allowed_oracles,
+        max_position_size: 18_446_744_073_709_551_615, // u64 max = uncapped
+        max_total_exposure: 18_446_744_073_709_551_615,
+        max_leverage_bps: 30_000,                       // 3x
+        enabled_strata: STRATUM_PLP | STRATUM_RANGE | STRATUM_HEDGE,
+        plp_floor_bps: DEFAULT_PLP_FLOOR_BPS,
+    }
+}
+
+// ─── Factory: permissionless vault deployment ────────────────────────────────
+/// Deploy a curator-owned vault. The caller supplies a freshly-published share
+/// TreasuryCap<S> (per-vault share Coin) and the provisioned DeepBook managers.
+/// Shares the vault, appends to the registry, returns Owner+Curator caps and
+/// transfers a full-authority ExecCap (rebalancer seat) to the curator.
+public fun deploy_vault<Q, S>(
+    registry: &mut VaultRegistry,
+    share_treasury: TreasuryCap<S>,
+    balance_manager_id: ID,
+    predict_manager_id: ID,
+    policy: PolicyConfig,
+    fees: FeeConfig,
+    name: vector<u8>,
+    strategy_kind: vector<u8>,
+    clock: &Clock,
     ctx: &mut TxContext,
-): (OperatorCap, RebalancerCap) {
-    let vault = Vault<T> {
+): (OwnerCap, CuratorCap) {
+    let curator = ctx.sender();
+
+    let mut fees = fees;
+    fees.high_water_mark = INITIAL_SHARE_PRICE;
+    fees.last_accrued_ms = clock.timestamp_ms();
+
+    let vault = Vault<Q, S> {
         id: object::new(ctx),
-        operator: ctx.sender(),
+        owner: curator,
+        curator,
         paused: false,
         balance_manager_id,
         predict_manager_id,
-        treasury,
+        share_treasury,
         share_supply: 0,
-        idle: balance::zero<T>(),
+        idle: balance::zero<Q>(),
         plp_held: 0,
         plp_price_cached: 0,
         plp_price_updated_ms: 0,
@@ -215,61 +226,57 @@ public fun create_vault<T>(
         hedge_is_short: false,
         walrus_blob_ids: vector[],
         enclave_pcr_hash: vector[],
-        plp_floor_bps: DEFAULT_PLP_FLOOR_BPS,
+        policy,
+        fees,
+        strategy_config_blob: vector[],
     };
 
     let vault_id = object::id(&vault);
+    let owner_cap = OwnerCap { id: object::new(ctx), vault_id };
+    let curator_cap = CuratorCap { id: object::new(ctx), vault_id };
+    let exec_cap = ExecCap { id: object::new(ctx), vault_id, mandate: option::none() };
 
-    let operator_cap = OperatorCap {
-        id: object::new(ctx),
-        vault_id,
-    };
-    let rebalancer_cap = RebalancerCap {
-        id: object::new(ctx),
-        vault_id,
-    };
+    registry.vaults.push_back(VaultInfo { vault_id, curator, name, strategy_kind });
 
+    transfer::public_transfer(exec_cap, curator);
     transfer::share_object(vault);
-    (operator_cap, rebalancer_cap)
+    (owner_cap, curator_cap)
 }
 
-// ─── Capability assertions (internal helpers) ────────────────────────────────
-
-fun assert_operator<T>(vault: &Vault<T>, cap: &OperatorCap) {
-    assert!(cap.vault_id == object::id(vault), EWrongVault);
-    // Cap ownership IS the authorization — holding a valid OperatorCap for this
-    // vault is sufficient. The vault_id match prevents using another vault's cap.
-}
-
-fun assert_rebalancer<T>(vault: &Vault<T>, cap: &RebalancerCap) {
+// ─── Cap assertions ──────────────────────────────────────────────────────────
+fun assert_owner<Q, S>(vault: &Vault<Q, S>, cap: &OwnerCap) {
     assert!(cap.vault_id == object::id(vault), EWrongVault);
 }
-
-fun assert_not_paused<T>(vault: &Vault<T>) {
+fun assert_curator_cap<Q, S>(vault: &Vault<Q, S>, cap: &CuratorCap) {
+    assert!(cap.vault_id == object::id(vault), EWrongVault);
+}
+fun assert_exec<Q, S>(vault: &Vault<Q, S>, cap: &ExecCap) {
+    assert!(cap.vault_id == object::id(vault), EWrongVault);
+    // v3.1: if mandate present, assert_mandate_live(cap) here.
+}
+fun assert_not_paused<Q, S>(vault: &Vault<Q, S>) {
     assert!(!vault.paused, EVaultPaused);
 }
 
-// ─── Read accessors (public views) ───────────────────────────────────────────
-
-public fun share_supply<T>(vault: &Vault<T>): u64 { vault.share_supply }
-public fun plp_held<T>(vault: &Vault<T>): u64 { vault.plp_held }
-public fun plp_price<T>(vault: &Vault<T>): u64 { vault.plp_price_cached }
-public fun position_count<T>(vault: &Vault<T>): u64 { vault.position_count }
-public fun is_paused<T>(vault: &Vault<T>): bool { vault.paused }
-public fun idle_value<T>(vault: &Vault<T>): u64 { balance::value(&vault.idle) }
+// ─── Read accessors ──────────────────────────────────────────────────────────
+public fun share_supply<Q, S>(vault: &Vault<Q, S>): u64 { vault.share_supply }
+public fun plp_held<Q, S>(vault: &Vault<Q, S>): u64 { vault.plp_held }
+public fun plp_price<Q, S>(vault: &Vault<Q, S>): u64 { vault.plp_price_cached }
+public fun position_count<Q, S>(vault: &Vault<Q, S>): u64 { vault.position_count }
+public fun is_paused<Q, S>(vault: &Vault<Q, S>): bool { vault.paused }
+public fun idle_value<Q, S>(vault: &Vault<Q, S>): u64 { balance::value(&vault.idle) }
+public fun curator<Q, S>(vault: &Vault<Q, S>): address { vault.curator }
+public fun owner<Q, S>(vault: &Vault<Q, S>): address { vault.owner }
+public fun high_water_mark<Q, S>(vault: &Vault<Q, S>): u64 { vault.fees.high_water_mark }
 
 // ─── NAV ─────────────────────────────────────────────────────────────────────
-
-/// Total assets under management, in quote-asset base units.
-/// For Phase 5.2 this is idle + PLP value. Stratum B/C marks add in 5.3/5.5/5.6.
-public fun total_assets<T>(vault: &Vault<T>): u64 {
+public fun total_assets<Q, S>(vault: &Vault<Q, S>): u64 {
     let idle = balance::value(&vault.idle);
-    let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, 1_000_000_000);
+    let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, PLP_PRICE_SCALE);
     idle + plp_value + vault.positions_mark_total
 }
 
-/// Share price in 6dp fixed point. Returns INITIAL when supply is zero.
-public fun share_price<T>(vault: &Vault<T>): u64 {
+public fun share_price<Q, S>(vault: &Vault<Q, S>): u64 {
     if (vault.share_supply == 0) {
         INITIAL_SHARE_PRICE
     } else {
@@ -277,413 +284,149 @@ public fun share_price<T>(vault: &Vault<T>): u64 {
     }
 }
 
-// ─── Deposit / Withdraw (user-facing) ────────────────────────────────────────
+public fun is_price_fresh<Q, S>(vault: &Vault<Q, S>, clock: &Clock): bool {
+    let now = clock.timestamp_ms();
+    if (vault.plp_held == 0) {
+        true
+    } else {
+        vault.plp_price_updated_ms > 0
+            && now - vault.plp_price_updated_ms <= PRICE_STALENESS_LIMIT_MS
+    }
+}
 
-/// Deposit quote asset T, receive FLOE shares. Anyone can call.
-/// Shares are minted in proportion to current NAV; rounds DOWN (favors vault).
-public fun deposit<T>(
-    vault: &mut Vault<T>,
-    payment: Coin<T>,
+// ─── Math ────────────────────────────────────────────────────────────────────
+fun mul_div(a: u64, b: u64, c: u64): u64 {
+    ((a as u128) * (b as u128) / (c as u128)) as u64
+}
+
+// ─── Fees: accrue by minting shares (Lagoon/Enzyme model, HWM) ───────────────
+//
+// Management: annualized % of NAV, pro-rata by elapsed time.
+// Performance: % of NAV gains above the high-water mark only (never double-charged).
+// Both expressed in ASSETS, converted to shares once, minted to the recipient
+// (dilution, never asset-skimming — preserves NAV per ERC-4626 best practice).
+// Accrued before any share-price-dependent op so deposits/withdrawals price fairly.
+fun accrue_fees<Q, S>(vault: &mut Vault<Q, S>, clock: &Clock, ctx: &mut TxContext) {
+    let now = clock.timestamp_ms();
+    let supply = vault.share_supply;
+    if (supply == 0) {
+        vault.fees.last_accrued_ms = now;
+        return
+    };
+
+    let assets = total_assets(vault);
+    if (assets == 0) {
+        vault.fees.last_accrued_ms = now;
+        return
+    };
+
+    // Management fee in assets: NAV * mgmt_bps * dt / (BPS * year)
+    let dt = now - vault.fees.last_accrued_ms;
+    let mgmt_assets = mul_div(
+        mul_div(assets, vault.fees.management_fee_bps, BPS_DENOM),
+        dt, MS_PER_YEAR,
+    );
+
+    // Performance fee in assets: only on price gain above HWM.
+    let price = share_price(vault);
+    let mut perf_assets = 0;
+    if (price > vault.fees.high_water_mark) {
+        let gain_per_share = price - vault.fees.high_water_mark;          // 6dp
+        let profit_assets = mul_div(gain_per_share, supply, INITIAL_SHARE_PRICE);
+        perf_assets = mul_div(profit_assets, vault.fees.performance_fee_bps, BPS_DENOM);
+        vault.fees.high_water_mark = price;
+    };
+
+    let fee_assets = mgmt_assets + perf_assets;
+    if (fee_assets > 0) {
+        // Convert fee assets to shares at current ratio, then mint (dilution).
+        let fee_shares = mul_div(fee_assets, supply, assets);
+        if (fee_shares > 0) {
+            let fee_coin = coin::mint(&mut vault.share_treasury, fee_shares, ctx);
+            vault.share_supply = vault.share_supply + fee_shares;
+            transfer::public_transfer(fee_coin, vault.fees.fee_recipient);
+        };
+    };
+    vault.fees.last_accrued_ms = now;
+}
+
+// ─── Deposit / Withdraw (user-facing) ────────────────────────────────────────
+/// Deposit quote asset Q, receive share Coin S in proportion to NAV. Anyone can call.
+public fun deposit<Q, S>(
+    vault: &mut Vault<Q, S>,
+    payment: Coin<Q>,
     clock: &Clock,
     ctx: &mut TxContext,
-): Coin<FLOE> {
+): Coin<S> {
     assert_not_paused(vault);
     assert!(is_price_fresh(vault, clock), EPriceStale);
+    accrue_fees(vault, clock, ctx); // crystallize fees before pricing this deposit
 
     let amount = coin::value(&payment);
     assert!(amount > 0, EZeroAmount);
 
     let supply = vault.share_supply;
-
     let shares = if (supply == 0) {
-        // Bootstrap: first deposit must clear the minimum, mints 1:1.
-        assert!(amount >= MIN_FIRST_DEPOSIT, EZeroAmount);
+        assert!(amount >= MIN_FIRST_DEPOSIT, EZeroAmount); // bootstrap / inflation guard
         amount
     } else {
-        // shares = amount * supply / total_assets, rounded DOWN
-        let assets = total_assets(vault);
-        mul_div(amount, supply, assets)
+        mul_div(amount, supply, total_assets(vault))
     };
-
     assert!(shares > 0, EZeroAmount);
 
-    // Absorb the payment into idle balance
     balance::join(&mut vault.idle, coin::into_balance(payment));
-
-    // Mint and return shares
     vault.share_supply = vault.share_supply + shares;
-    coin::mint(&mut vault.treasury, shares, ctx)
+    coin::mint(&mut vault.share_treasury, shares, ctx)
 }
 
-/// Burn FLOE shares, receive proportional quote asset T back.
-/// Rounds DOWN (favors vault). Withdraws from idle balance only in 5.2;
-/// PLP redemption path for large withdrawals comes in 5.4.
-public fun withdraw<T>(
-    vault: &mut Vault<T>,
-    shares: Coin<FLOE>,
+/// Burn share Coin S, receive proportional Q from idle. Rounds DOWN (favors vault).
+public fun withdraw<Q, S>(
+    vault: &mut Vault<Q, S>,
+    shares: Coin<S>,
     clock: &Clock,
     ctx: &mut TxContext,
-): Coin<T> {
+): Coin<Q> {
     assert_not_paused(vault);
     assert!(is_price_fresh(vault, clock), EPriceStale);
+    accrue_fees(vault, clock, ctx);
 
     let share_amount = coin::value(&shares);
     assert!(share_amount > 0, EZeroAmount);
     assert!(share_amount <= vault.share_supply, ESharesExceedSupply);
 
-    // assets = shares * total_assets / supply, rounded DOWN
-    let assets = total_assets(vault);
-    let payout = mul_div(share_amount, assets, vault.share_supply);
-
+    let payout = mul_div(share_amount, total_assets(vault), vault.share_supply);
     assert!(payout > 0, EInsufficientShares);
     assert!(balance::value(&vault.idle) >= payout, EInsufficientShares);
 
-    // Burn the shares
-    coin::burn(&mut vault.treasury, shares);
+    coin::burn(&mut vault.share_treasury, shares);
     vault.share_supply = vault.share_supply - share_amount;
-
-    // Return proportional assets from idle
     coin::from_balance(balance::split(&mut vault.idle, payout), ctx)
 }
 
-// ─── Stratum A: attested PLP price oracle ────────────────────────────────────
-
-/// Update the cached PLP share price. Called by the rebalancer (enclave) each
-/// cycle. The `attestation` argument carries the Nautilus attestation document
-/// proving the price was read by the registered enclave; full PCR verification
-/// lands on Day 18 (currently presence-checked only).
-///
-/// `new_price` is the PLP share price in 9dp fixed point (matching Predict's
-/// vault_value / plp_supply scale).
-public fun update_plp_price<T>(
-    vault: &mut Vault<T>,
-    cap: &RebalancerCap,
-    new_price: u64,
-    plp_held: u64,
-    _attestation: vector<u8>,
-    clock: &Clock,
-) {
-    assert_rebalancer(vault, cap);
-    assert!(new_price > 0, EZeroAmount);
-
-    // TODO(Day 18): verify _attestation against vault.enclave_pcr_hash
-    // using sui::nitro_attestation or the Nautilus Move helper.
-
-    vault.plp_price_cached = new_price;
-    vault.plp_held = plp_held;
-    vault.plp_price_updated_ms = clock.timestamp_ms();
-}
-
-/// True if the cached PLP price is fresh enough to trust for NAV.
-public fun is_price_fresh<T>(vault: &Vault<T>, clock: &Clock): bool {
-    let now = clock.timestamp_ms();
-    let updated = vault.plp_price_updated_ms;
-    // Fresh if updated within the staleness window. If never updated
-    // (updated == 0) and no PLP is held, freshness is irrelevant.
-    if (vault.plp_held == 0) {
-        true
-    } else {
-        updated > 0 && now - updated <= PRICE_STALENESS_LIMIT_MS
-    }
-}
-
-// ─── Stratum A: deploy idle DUSDC → PLP, and redeem PLP → DUSDC ───────────────
-//
-// Floe never holds Coin<PLP> directly. The flow inside one rebalance PTB:
-//
-//   SUPPLY:
-//     1. floe::deploy_idle(vault, cap, amount)        -> (Coin<DUSDC>, DeployReceipt)
-//     2. predict::supply<DUSDC>(predict, coin, clk)   -> Coin<PLP>      [Predict]
-//     3. predict_manager::deposit<PLP>(mgr, plp, ctx)                   [Predict]
-//     4. floe::confirm_deploy(vault, receipt, plp_obtained)
-//
-//   REDEEM:
-//     1. floe::request_redeem(vault, cap, plp_amount) -> RedeemReceipt
-//     2. predict_manager::withdraw<PLP>(mgr, amt, ctx)-> Coin<PLP>      [Predict]
-//     3. predict::withdraw<DUSDC>(predict, plp, clk)  -> Coin<DUSDC>    [Predict]
-//     4. floe::confirm_redeem(vault, receipt, dusdc_coin)
-
-/// Step 1 of supply: take `amount` DUSDC out of idle, hand it to the rebalancer
-/// along with a receipt that must be settled this PTB. Enforces Stratum A floor.
-public fun deploy_idle<T>(
-    vault: &mut Vault<T>,
-    cap: &RebalancerCap,
-    amount: u64,
-    ctx: &mut TxContext,
-): (Coin<T>, DeployReceipt) {
-    assert_rebalancer(vault, cap);
-    assert_not_paused(vault);
-    assert!(amount > 0, EZeroAmount);
-    assert!(balance::value(&vault.idle) >= amount, EInsufficientShares);
-
-    // Stratum A floor: after this deployment, idle must remain >= floor of TVL.
-    // TVL = idle + plp_value. floor_bps default 5000 = 50%.
-    let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, 1_000_000_000);
-    let tvl = balance::value(&vault.idle) + plp_value;
-    let idle_after = balance::value(&vault.idle) - amount;
-    let floor = mul_div(tvl, vault.plp_floor_bps, 10_000);
-    // idle_after + (plp grows by ~amount) stays >= floor; we check idle_after
-    // against floor conservatively (PLP isn't liquid for instant withdrawal).
-    assert!(idle_after + plp_value + amount >= floor, EPlpFloorBreached);
-
-    let coin_out = coin::from_balance(balance::split(&mut vault.idle, amount), ctx);
-    let receipt = DeployReceipt { vault_id: object::id(vault), dusdc_out: amount };
-    (coin_out, receipt)
-}
-
-/// Step 4 of supply: settle the receipt, recording how much PLP was obtained.
-public fun confirm_deploy<T>(
-    vault: &mut Vault<T>,
-    receipt: DeployReceipt,
-    plp_obtained: u64,
-) {
-    let DeployReceipt { vault_id, dusdc_out: _ } = receipt;
-    assert!(vault_id == object::id(vault), EWrongVault);
-    assert!(plp_obtained > 0, EZeroAmount);
-    vault.plp_held = vault.plp_held + plp_obtained;
-}
-
-/// Step 1 of redeem: authorize the rebalancer to pull `plp_amount` PLP from the
-/// manager. Decrements tracked PLP; receipt must be settled this PTB.
-public fun request_redeem<T>(
-    vault: &mut Vault<T>,
-    cap: &RebalancerCap,
-    plp_amount: u64,
-): RedeemReceipt {
-    assert_rebalancer(vault, cap);
-    assert!(plp_amount > 0, EZeroAmount);
-    assert!(vault.plp_held >= plp_amount, EInsufficientShares);
-
-    vault.plp_held = vault.plp_held - plp_amount;
-    RedeemReceipt { vault_id: object::id(vault), plp_out: plp_amount }
-}
-
-/// Step 4 of redeem: settle the receipt, absorbing the DUSDC obtained back into idle.
-public fun confirm_redeem<T>(
-    vault: &mut Vault<T>,
-    receipt: RedeemReceipt,
-    dusdc_coin: Coin<T>,
-) {
-    let RedeemReceipt { vault_id, plp_out: _ } = receipt;
-    assert!(vault_id == object::id(vault), EWrongVault);
-    balance::join(&mut vault.idle, coin::into_balance(dusdc_coin));
-}
-
-// ─── Stratum B: range position ladder (rebalancer-gated) ─────────────────────
-//
-// The vault records each range Floe writes on Predict in `positions`, keyed by
-// the Predict position's object ID. The 1σ strike selection happens off-chain
-// in the rebalancer (reads SVI surface, computes the band); the vault stores
-// the result and includes it in NAV via mark_value_cached.
-
-/// Step 1 of placing a range: pull `amount` DUSDC from idle to fund the mint,
-/// hand it to the rebalancer along with a receipt that must be settled by
-/// `record_range` this PTB. Enforces the Stratum A floor (same as deploy_idle)
-/// so range deployment can't drain liquidity below the floor.
-public fun authorize_range<T>(
-    vault: &mut Vault<T>,
-    cap: &RebalancerCap,
-    amount: u64,
-    ctx: &mut TxContext,
-): (Coin<T>, RangeAuthReceipt) {
-    assert_rebalancer(vault, cap);
-    assert_not_paused(vault);
-    assert!(amount > 0, EZeroAmount);
-    assert!(balance::value(&vault.idle) >= amount, EInsufficientShares);
-
-    // Stratum A floor check (mirrors deploy_idle): idle must stay >= floor of TVL.
-    let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, 1_000_000_000);
-    let tvl = balance::value(&vault.idle) + plp_value + vault.positions_mark_total;
-    let idle_after = balance::value(&vault.idle) - amount;
-    let floor = mul_div(tvl, vault.plp_floor_bps, 10_000);
-    // The funded amount becomes a position mark, so total value is preserved;
-    // we check idle_after + plp + existing marks + this funded amount >= floor.
-    assert!(idle_after + plp_value + vault.positions_mark_total + amount >= floor, EPlpFloorBreached);
-
-    let coin_out = coin::from_balance(balance::split(&mut vault.idle, amount), ctx);
-    let receipt = RangeAuthReceipt { vault_id: object::id(vault), funded: amount };
-    (coin_out, receipt)
-}
-
-/// Step 4 of placing a range: record the minted position in the table.
-public fun record_range<T>(
-    vault: &mut Vault<T>,
-    receipt: RangeAuthReceipt,
-    position_id: ID,
-    oracle_id: ID,
-    expiry_ms: u64,
-    lower_strike: u64,
-    upper_strike: u64,
-    size: u64,
-    premium_paid: u64,
-    clock: &Clock,
-) {
-    let RangeAuthReceipt { vault_id, funded: _ } = receipt;
-    assert!(vault_id == object::id(vault), EWrongVault);
-
-    let position = RangePosition {
-        oracle_id,
-        expiry_ms,
-        lower_strike,
-        upper_strike,
-        size,
-        premium_paid,
-        minted_at_ms: clock.timestamp_ms(),
-        mark_value_cached: premium_paid, // initial mark = cost paid
-    };
-
-    table::add(&mut vault.positions, position_id, position);
-    vault.position_count = vault.position_count + 1;
-    vault.positions_mark_total = vault.positions_mark_total + premium_paid;
-}
-
-/// Update the cached mark-to-market value of an open position. Called by the
-/// rebalancer each cycle with the attested current value (drives NAV).
-public fun mark_position<T>(
-    vault: &mut Vault<T>,
-    cap: &RebalancerCap,
-    position_id: ID,
-    new_mark: u64,
-) {
-    assert_rebalancer(vault, cap);
-    assert!(table::contains(&vault.positions, position_id), EPositionNotFound);
-    let old_mark = table::borrow(&vault.positions, position_id).mark_value_cached;
-    vault.positions_mark_total = vault.positions_mark_total - old_mark + new_mark;
-    let pos = table::borrow_mut(&mut vault.positions, position_id);
-    pos.mark_value_cached = new_mark;
-}
-
-/// Step 1 of redeeming a range: remove it from the table, hand back a receipt.
-/// The rebalancer then calls Predict's redeem; payout returns via confirm.
-public fun authorize_redeem_range<T>(
-    vault: &mut Vault<T>,
-    cap: &RebalancerCap,
-    position_id: ID,
-): RangeRedeemReceipt {
-    assert_rebalancer(vault, cap);
-    assert!(table::contains(&vault.positions, position_id), EPositionNotFound);
-
-    // Remove the position record; destructure to drop it (RangePosition has store
-    // but we're done with it once redeemed).
-    let RangePosition {
-        oracle_id: _, expiry_ms: _, lower_strike: _, upper_strike: _,
-        size: _, premium_paid: _, minted_at_ms: _, mark_value_cached,
-    } = table::remove(&mut vault.positions, position_id);
-
-    vault.position_count = vault.position_count - 1;
-    vault.positions_mark_total = vault.positions_mark_total - mark_value_cached;
-    RangeRedeemReceipt { vault_id: object::id(vault), position_id }
-}
-
-/// Step 3 of redeeming: absorb the DUSDC payout back into idle.
-public fun confirm_range_redeem<T>(
-    vault: &mut Vault<T>,
-    receipt: RangeRedeemReceipt,
-    payout: Coin<T>,
-) {
-    let RangeRedeemReceipt { vault_id, position_id: _ } = receipt;
-    assert!(vault_id == object::id(vault), EWrongVault);
-    balance::join(&mut vault.idle, coin::into_balance(payout));
-}
-
-// ─── Stratum C: delta hedge via DeepBook Margin (rebalancer-gated) ───────────
-//
-// The vault tracks the net hedge it holds (notional + direction). The actual
-// Margin position is opened/closed by the rebalancer in the PTB; Floe records
-// the result so NAV and risk reporting stay accurate. Going live requires Pyth
-// price freshness in the margin PTB (Phase 6.P) — the contract side is complete
-// and Pyth-independent.
-
-/// Authorize a hedge adjustment. Returns a receipt the rebalancer must settle
-/// via `record_hedge` after executing the Margin trade in the same PTB.
-public fun authorize_hedge<T>(
-    vault: &mut Vault<T>,
-    cap: &RebalancerCap,
-): HedgeReceipt {
-    assert_rebalancer(vault, cap);
-    assert_not_paused(vault);
-    HedgeReceipt { vault_id: object::id(vault) }
-}
-
-/// Record the vault's hedge state after a Margin adjustment. `is_short` true
-/// means the hedge is short the underlying (offsetting positive delta).
-/// `margin_manager_id` is recorded the first time a hedge opens.
-public fun record_hedge<T>(
-    vault: &mut Vault<T>,
-    receipt: HedgeReceipt,
-    margin_manager_id: ID,
-    notional: u64,
-    is_short: bool,
-) {
-    let HedgeReceipt { vault_id } = receipt;
-    assert!(vault_id == object::id(vault), EWrongVault);
-
-    if (option::is_none(&vault.hedge_margin_manager_id)) {
-        vault.hedge_margin_manager_id = option::some(margin_manager_id);
-    };
-    vault.hedge_notional = notional;
-    vault.hedge_is_short = is_short;
-}
-
-// ─── Operator functions (config + enclave registration) ──────────────────────
-
-/// Register (or rotate) the authorized Nautilus enclave PCR measurement.
-/// Only the operator can do this. The rebalancer's attestations are checked
-/// against this hash (full verification wired Day 18).
-public fun register_enclave<T>(
-    vault: &mut Vault<T>,
-    cap: &OperatorCap,
-    pcr_hash: vector<u8>,
-) {
-    assert_operator(vault, cap);
-    vault.enclave_pcr_hash = pcr_hash;
-}
-
-/// Update the Stratum A liquidity floor (in basis points). Operator only.
-public fun set_plp_floor<T>(
-    vault: &mut Vault<T>,
-    cap: &OperatorCap,
-    floor_bps: u64,
-) {
-    assert_operator(vault, cap);
-    assert!(floor_bps <= 10_000, EZeroAmount);
-    vault.plp_floor_bps = floor_bps;
-}
-
-/// Pause/unpause user-facing deposit & withdraw (emergency switch). Operator only.
-public fun set_paused<T>(
-    vault: &mut Vault<T>,
-    cap: &OperatorCap,
-    paused: bool,
-) {
-    assert_operator(vault, cap);
-    vault.paused = paused;
-}
-
-/// Append a Walrus blob ID to the on-chain audit index. Rebalancer-gated;
-/// called each rebalance after writing the snapshot to Walrus (wired W3).
-public fun record_walrus_blob<T>(
-    vault: &mut Vault<T>,
-    cap: &RebalancerCap,
-    blob_id: vector<u8>,
-) {
-    assert_rebalancer(vault, cap);
-    vault.walrus_blob_ids.push_back(blob_id);
-}
-// ─── Math helper ─────────────────────────────────────────────────────────────
-
-/// Computes a * b / c with u128 intermediate to avoid overflow, rounding DOWN.
-fun mul_div(a: u64, b: u64, c: u64): u64 {
-    ((a as u128) * (b as u128) / (c as u128)) as u64
-}
 // ─── Test-only helpers ───────────────────────────────────────────────────────
+#[test_only]
+public struct TEST_SHARE has drop {}
 
 #[test_only]
-/// Mint a FLOE TreasuryCap for testing, bypassing the OTW init flow.
-public fun test_new_treasury(ctx: &mut TxContext): TreasuryCap<FLOE> {
-    coin::create_treasury_cap_for_testing<FLOE>(ctx)
+public fun test_new_share_treasury(ctx: &mut TxContext): TreasuryCap<TEST_SHARE> {
+    coin::create_treasury_cap_for_testing<TEST_SHARE>(ctx)
 }
 
 #[test_only]
-/// Expose total_assets for assertions.
-public fun test_total_assets<T>(vault: &Vault<T>): u64 { total_assets(vault) }
+public fun test_total_assets<Q, S>(vault: &Vault<Q, S>): u64 { total_assets(vault) }
+
+#[test_only]
+public fun test_accrue_fees<Q, S>(vault: &mut Vault<Q, S>, clock: &Clock, ctx: &mut TxContext) {
+    accrue_fees(vault, clock, ctx);
+}
+
+/// Inject quote directly into idle to simulate a NAV gain (test-only).
+#[test_only]
+public fun test_inject_gain<Q, S>(vault: &mut Vault<Q, S>, coin_in: Coin<Q>) {
+    balance::join(&mut vault.idle, coin::into_balance(coin_in));
+}
+
+#[test_only]
+public fun test_init_registry(ctx: &mut TxContext) {
+    transfer::share_object(VaultRegistry { id: object::new(ctx), vaults: vector[] });
+}

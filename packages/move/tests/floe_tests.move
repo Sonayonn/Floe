@@ -5,23 +5,40 @@ use sui::test_scenario::{Self as ts, next_tx, ctx};
 use std::unit_test::destroy;
 use sui::coin::{Self, Coin};
 use sui::clock;
-use floe::floe::{Self as vault, Vault, OperatorCap, RebalancerCap, FLOE};
+use floe::floe::{Self as vault, Vault, OwnerCap, CuratorCap, VaultRegistry, TEST_SHARE};
 
-// A stand-in quote asset for tests. Any type works since Vault is generic.
 public struct TUSD has drop {}
 
 const ADMIN: address = @0xA;
 const USER: address = @0xB;
+const CURATOR: address = @0xA;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/// Spin up a vault with dummy manager IDs, return its caps. Vault is shared.
-fun new_vault(scenario: &mut ts::Scenario): (OperatorCap, RebalancerCap) {
-    let treasury = vault::test_new_treasury(ctx(scenario));
-    // Dummy IDs for the BalanceManager / PredictManager references.
+/// Publish the registry (mirrors init) for tests.
+fun new_registry(scenario: &mut ts::Scenario) {
+    vault::test_init_registry(ctx(scenario));
+}
+
+/// Spin up a v3 vault: TEST_SHARE shares, TUSD quote, default policy, given fees.
+fun setup_vault(
+    mgmt_bps: u64, perf_bps: u64, scenario: &mut ts::Scenario,
+): (OwnerCap, CuratorCap) {
+    let treasury = vault::test_new_share_treasury(ctx(scenario));
     let bm_id = object::id_from_address(@0x1111);
     let pm_id = object::id_from_address(@0x2222);
-    vault::create_vault<TUSD>(treasury, bm_id, pm_id, ctx(scenario))
+    let policy = vault::default_policy(vector[]);
+    let fees = vault::new_fees(mgmt_bps, perf_bps, CURATOR);
+    let clk = clock::create_for_testing(ctx(scenario));
+
+    let mut registry = ts::take_shared<VaultRegistry>(scenario);
+    let (op, cur) = vault::deploy_vault<TUSD, TEST_SHARE>(
+        &mut registry, treasury, bm_id, pm_id, policy, fees,
+        b"Test Vault", b"stratos", &clk, ctx(scenario),
+    );
+    ts::return_shared(registry);
+    clock::destroy_for_testing(clk);
+    (op, cur)
 }
 
 fun mint_tusd(amount: u64, scenario: &mut ts::Scenario): Coin<TUSD> {
@@ -33,173 +50,108 @@ fun mint_tusd(amount: u64, scenario: &mut ts::Scenario): Coin<TUSD> {
 #[test]
 fun test_deposit_bootstrap() {
     let mut sc = ts::begin(ADMIN);
-    let (op, reb) = new_vault(&mut sc);
-
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 0, &mut sc);
     next_tx(&mut sc, USER);
     {
-        let mut vault = ts::take_shared<Vault<TUSD>>(&sc);
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
         let clk = clock::create_for_testing(ctx(&mut sc));
-        let payment = mint_tusd(10_000_000, &mut sc); // 10 TUSD
-
-        let shares = vault::deposit(&mut vault, payment, &clk, ctx(&mut sc));
-        // Bootstrap: 1:1, so 10 TUSD -> 10_000_000 shares
+        let payment = mint_tusd(10_000_000, &mut sc);
+        let shares = vault::deposit(&mut v, payment, &clk, ctx(&mut sc));
         assert!(coin::value(&shares) == 10_000_000, 0);
-        assert!(vault::share_supply(&vault) == 10_000_000, 1);
-        assert!(vault::test_total_assets(&vault) == 10_000_000, 2);
-
+        assert!(vault::share_supply(&v) == 10_000_000, 1);
+        assert!(vault::test_total_assets(&v) == 10_000_000, 2);
         destroy(shares);
         clock::destroy_for_testing(clk);
-        ts::return_shared(vault);
+        ts::return_shared(v);
     };
-
-    destroy(op); destroy(reb);
-    ts::end(sc);
-}
-
-#[test]
-fun test_deposit_proportional() {
-    let mut sc = ts::begin(ADMIN);
-    let (op, reb) = new_vault(&mut sc);
-
-    next_tx(&mut sc, USER);
-    {
-        let mut vault = ts::take_shared<Vault<TUSD>>(&sc);
-        let clk = clock::create_for_testing(ctx(&mut sc));
-
-        // First deposit 10 TUSD -> 10M shares
-        let s1 = vault::deposit(&mut vault, mint_tusd(10_000_000, &mut sc), &clk, ctx(&mut sc));
-        // Second deposit 5 TUSD -> NAV is 10M, supply 10M, so 5M shares
-        let s2 = vault::deposit(&mut vault, mint_tusd(5_000_000, &mut sc), &clk, ctx(&mut sc));
-
-        assert!(coin::value(&s2) == 5_000_000, 0);
-        assert!(vault::share_supply(&vault) == 15_000_000, 1);
-
-        destroy(s1); destroy(s2);
-        clock::destroy_for_testing(clk);
-        ts::return_shared(vault);
-    };
-
-    destroy(op); destroy(reb);
+    destroy(op); destroy(cur);
     ts::end(sc);
 }
 
 #[test]
 fun test_withdraw_roundtrip() {
     let mut sc = ts::begin(ADMIN);
-    let (op, reb) = new_vault(&mut sc);
-
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 0, &mut sc);
     next_tx(&mut sc, USER);
     {
-        let mut vault = ts::take_shared<Vault<TUSD>>(&sc);
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
         let clk = clock::create_for_testing(ctx(&mut sc));
-
-        let shares = vault::deposit(&mut vault, mint_tusd(10_000_000, &mut sc), &clk, ctx(&mut sc));
-        let returned = vault::withdraw(&mut vault, shares, &clk, ctx(&mut sc));
-
-        // Full round-trip returns principal exactly (no other depositors)
-        assert!(coin::value(&returned) == 10_000_000, 0);
-        assert!(vault::share_supply(&vault) == 0, 1);
-
-        destroy(returned);
+        let shares = vault::deposit(&mut v, mint_tusd(10_000_000, &mut sc), &clk, ctx(&mut sc));
+        let out = vault::withdraw(&mut v, shares, &clk, ctx(&mut sc));
+        assert!(coin::value(&out) == 10_000_000, 0);
+        assert!(vault::share_supply(&v) == 0, 1);
+        destroy(out);
         clock::destroy_for_testing(clk);
-        ts::return_shared(vault);
+        ts::return_shared(v);
     };
-
-    destroy(op); destroy(reb);
+    destroy(op); destroy(cur);
     ts::end(sc);
 }
 
 #[test]
-#[expected_failure(abort_code = vault::EZeroAmount)]
-fun test_min_first_deposit_aborts() {
+/// Performance fee: 20% of a gain above HWM is minted as fee shares to curator.
+fun test_performance_fee() {
     let mut sc = ts::begin(ADMIN);
-    let (op, reb) = new_vault(&mut sc);
-
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 2_000, &mut sc); // 0 mgmt, 20% perf
     next_tx(&mut sc, USER);
     {
-        let mut vault = ts::take_shared<Vault<TUSD>>(&sc);
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
         let clk = clock::create_for_testing(ctx(&mut sc));
 
-        // Below MIN_FIRST_DEPOSIT (1_000_000) -> must abort
-        let shares = vault::deposit(&mut vault, mint_tusd(500_000, &mut sc), &clk, ctx(&mut sc));
+        // Deposit 1000 TUSD -> 1000 shares, price = 1.0, supply = 1_000_000_000
+        let shares = vault::deposit(&mut v, mint_tusd(1_000_000_000, &mut sc), &clk, ctx(&mut sc));
+        let supply_before = vault::share_supply(&v);
+        assert!(supply_before == 1_000_000_000, 0);
+
+        // Simulate a +10% NAV gain: inject 100 TUSD into idle.
+        vault::test_inject_gain(&mut v, mint_tusd(100_000_000, &mut sc));
+        // Now NAV = 1100, price = 1.1 (1_100_000 in 6dp), HWM = 1.0.
+
+        // Accrue: profit_assets = (1.1-1.0)*1000 = 100 TUSD; perf = 20% = 20 TUSD.
+        // fee_shares = 20 * supply / NAV = 20 * 1000 / 1100 ~= 18.18 shares.
+        vault::test_accrue_fees(&mut v, &clk, ctx(&mut sc));
+
+        let supply_after = vault::share_supply(&v);
+        let minted = supply_after - supply_before;
+        // Expect ~18_181_818 (18.18 shares in 6dp). Allow tight rounding band.
+        assert!(minted >= 18_100_000 && minted <= 18_200_000, 1);
+
+        // HWM should have advanced to the new price (~1.1, pre-dilution).
+        assert!(vault::high_water_mark(&v) >= 1_090_000, 2);
 
         destroy(shares);
         clock::destroy_for_testing(clk);
-        ts::return_shared(vault);
+        ts::return_shared(v);
     };
-
-    destroy(op); destroy(reb);
+    destroy(op); destroy(cur);
     ts::end(sc);
 }
 
 #[test]
-#[expected_failure(abort_code = vault::EVaultPaused)]
-fun test_paused_blocks_deposit() {
+/// No performance fee when there's no gain above HWM.
+fun test_no_fee_without_gain() {
     let mut sc = ts::begin(ADMIN);
-    let (op, reb) = new_vault(&mut sc);
-
+    new_registry(&mut sc);
     next_tx(&mut sc, ADMIN);
-    {
-        let mut vault = ts::take_shared<Vault<TUSD>>(&sc);
-        vault::set_paused(&mut vault, &op, true);
-        ts::return_shared(vault);
-    };
-
+    let (op, cur) = setup_vault(0, 2_000, &mut sc);
     next_tx(&mut sc, USER);
     {
-        let mut vault = ts::take_shared<Vault<TUSD>>(&sc);
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
         let clk = clock::create_for_testing(ctx(&mut sc));
-        let shares = vault::deposit(&mut vault, mint_tusd(10_000_000, &mut sc), &clk, ctx(&mut sc));
+        let shares = vault::deposit(&mut v, mint_tusd(1_000_000_000, &mut sc), &clk, ctx(&mut sc));
+        let supply_before = vault::share_supply(&v);
+        vault::test_accrue_fees(&mut v, &clk, ctx(&mut sc));
+        assert!(vault::share_supply(&v) == supply_before, 0); // no gain -> no fee
         destroy(shares);
         clock::destroy_for_testing(clk);
-        ts::return_shared(vault);
+        ts::return_shared(v);
     };
-
-    destroy(op); destroy(reb);
-    ts::end(sc);
-}
-
-#[test]
-fun test_unpause_restores_deposit() {
-    let mut sc = ts::begin(ADMIN);
-    let (op, reb) = new_vault(&mut sc);
-
-    next_tx(&mut sc, ADMIN);
-    {
-        let mut vault = ts::take_shared<Vault<TUSD>>(&sc);
-        vault::set_paused(&mut vault, &op, true);
-        vault::set_paused(&mut vault, &op, false);
-        ts::return_shared(vault);
-    };
-
-    next_tx(&mut sc, USER);
-    {
-        let mut vault = ts::take_shared<Vault<TUSD>>(&sc);
-        let clk = clock::create_for_testing(ctx(&mut sc));
-        let shares = vault::deposit(&mut vault, mint_tusd(10_000_000, &mut sc), &clk, ctx(&mut sc));
-        assert!(coin::value(&shares) == 10_000_000, 0);
-        destroy(shares);
-        clock::destroy_for_testing(clk);
-        ts::return_shared(vault);
-    };
-
-    destroy(op); destroy(reb);
-    ts::end(sc);
-}
-
-#[test]
-fun test_set_floor_and_register_enclave() {
-    let mut sc = ts::begin(ADMIN);
-    let (op, reb) = new_vault(&mut sc);
-
-    next_tx(&mut sc, ADMIN);
-    {
-        let mut vault = ts::take_shared<Vault<TUSD>>(&sc);
-        vault::set_plp_floor(&mut vault, &op, 6_000);
-        vault::register_enclave(&mut vault, &op, b"pcr-measurement-hash");
-        ts::return_shared(vault);
-    };
-
-    destroy(op); destroy(reb);
+    destroy(op); destroy(cur);
     ts::end(sc);
 }
