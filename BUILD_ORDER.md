@@ -143,3 +143,34 @@ mark_position currently takes a hand-supplied mark; in production the rebalancer
 compute each range position's MTM from the SVI oracle (position value given spot/vol/strikes)
 and push it each cycle, exactly like the PLP price heartbeat. Attested version = Phase 7
 (Nautilus). For now marks are set to premium_paid (no assumed gain) = honest placeholder.
+
+## SEQUENCING CHANGE (custody-driven)
+Nautilus PULLED FORWARD: was Phase 7 (last), now runs RIGHT AFTER Phase 3 (SDK).
+Reason: the enclave is the real custody owner of PredictManager funds (non-custodial
+endpoint), so it must land early enough to derisk — but not block foundational
+provisioning/SDK. New order: P1 ✅ -> P2 (provisioning + v3.2 custody) -> P3 (SDK + v3.1
+agent caps) -> NAUTILUS (was P7) -> P4 (2nd vault + agent vault) -> Walrus -> Seal ->
+app -> backtest -> submission.
+
+## CUSTODY MODEL (v3.2) — non-custodial, two managers, two paths
+BalanceManager (Spot/Margin hedge funds): FULLY non-custodial NOW. Owner = vault address
+(keyless, no signer can ever own-withdraw). Vault holds WithdrawCap + DepositCap + TradeCap
+in its struct; all access via policy-gated, receipt-enforced vault functions. No human key
+can drain. Built in v3.2.
+
+PredictManager (PLP + ranges = majority of funds): owner-only withdraw, NO cap delegation,
+so keyless-owner is impossible (would lock funds). Custody = an abstracted "attested
+operator" role:
+  - INTERIM (until Nautilus): a Floe-controlled operator key owns the PredictManager.
+    EXPLICITLY LABELED in contract + docs as interim. This is the one custodial surface.
+  - ENDPOINT (Nautilus phase): PredictManager owned by an address whose key lives ONLY
+    inside the attested TEE enclave. No human holds it. Withdrawals only via attested
+    enclave execution. Custody FUSES with the moat: the same attestation proving NAV also
+    IS the custody mechanism. "Predict funds controlled by attested hardware, not a person."
+v3.2 writes the withdrawal path through the abstracted operator role so the enclave slots
+in at the Nautilus phase with no further contract change.
+
+## DEMO CLAIM (honest)
+"Spot/Margin collateral: fully non-custodial today (vault-held caps, keyless owner).
+Predict funds: operated by an interim attested operator, becoming fully enclave-custodied
+(no human key) when Nautilus lands — architecture shipped, key migration is the only step."
