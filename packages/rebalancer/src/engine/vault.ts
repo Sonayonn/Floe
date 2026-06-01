@@ -17,6 +17,8 @@ import { FLOE, FLOE_SHARE_TYPE, PREDICT, SUI_SYSTEM } from '../config.ts';
 const T = PREDICT.quoteType;     // Q = quote asset (DUSDC)
 const S = FLOE_SHARE_TYPE;        // S = per-vault share Coin
 const TS = [T, S];               // vault is Vault<Q,S>; entries need both type args
+const P = PREDICT.plpType;        // P = PLP coin type
+const TS_PLP = [T, S, P];          // PLP-generic entries need all three
 const PKG = FLOE.packageId;
 const MOD = FLOE.moduleName;
 
@@ -28,6 +30,23 @@ function target(fn: string) {
 function vaultArg(tx: Transaction) { return tx.object(FLOE.vaultId); }
 function capArg(tx: Transaction) { return tx.object(FLOE.execCapId); }
 function clockArg(tx: Transaction) { return tx.object(SUI_SYSTEM.clock); }
+
+// ─── PLP custody (Path B): vault holds Coin<PLP> on its own UID ───────────────
+/** store_plp<Q,S,P>(vault, cap, plp) — attach supplied PLP to the vault (non-custodial). */
+export function storePlp(tx: Transaction, plp: TransactionObjectArgument) {
+  tx.moveCall({
+    target: target('store_plp'), typeArguments: TS_PLP,
+    arguments: [vaultArg(tx), capArg(tx), plp],
+  });
+}
+/** take_plp<Q,S,P>(vault, cap, amount) -> Coin<P> — pull PLP back out within the PTB. */
+export function takePlp(tx: Transaction, amount: bigint): TransactionObjectArgument {
+  const [plp] = tx.moveCall({
+    target: target('take_plp'), typeArguments: TS_PLP,
+    arguments: [vaultArg(tx), capArg(tx), tx.pure.u64(amount)],
+  });
+  return plp;
+}
 
 // ─── Stratum A: PLP supply / redeem ──────────────────────────────────────────
 

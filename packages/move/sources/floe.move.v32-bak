@@ -20,7 +20,6 @@ use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin, TreasuryCap};
 use sui::table::{Self, Table};
 use sui::clock::Clock;
-use sui::dynamic_field as df;
 use sui::event;
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
@@ -648,45 +647,6 @@ public fun set_strategy_blob<Q, S>(vault: &mut Vault<Q, S>, cap: &CuratorCap, bl
 public fun record_walrus_blob<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap, blob_id: vector<u8>) {
     assert_exec(vault, cap);
     vault.walrus_blob_ids.push_back(blob_id);
-}
-
-// ─── PLP custody (Path B): vault holds Coin<P> on its own UID ─────────────────
-//
-// Closes the EOA leak: predict::supply returns Coin<PLP> which is attached to the
-// vault here, NOT transferred to an operator. Redemption hands it back into the
-// PTB which calls predict::withdraw (needs NO owner) — so PLP is FULLY
-// non-custodial: the vault owns and redeems its own PLP. Generic over P so the
-// contract imports nothing DeepBook-specific.
-
-public struct PlpKey has copy, drop, store {}
-
-/// Attach a freshly-supplied PLP coin to the vault (ExecCap-gated). If PLP is
-/// already held, joins into the existing balance. Pairs with confirm_deploy.
-public fun store_plp<Q, S, P>(vault: &mut Vault<Q, S>, cap: &ExecCap, plp: Coin<P>) {
-    assert_exec(vault, cap);
-    if (df::exists(&vault.id, PlpKey {})) {
-        let bal: &mut Balance<P> = df::borrow_mut(&mut vault.id, PlpKey {});
-        balance::join(bal, coin::into_balance(plp));
-    } else {
-        df::add(&mut vault.id, PlpKey {}, coin::into_balance(plp));
-    }
-}
-
-/// Take `amount` of PLP back out as a Coin<P> for redemption within the PTB
-/// (ExecCap-gated). The PTB then calls predict::withdraw on it. Pairs with
-/// request_redeem / confirm_redeem for accounting.
-public fun take_plp<Q, S, P>(vault: &mut Vault<Q, S>, cap: &ExecCap, amount: u64, ctx: &mut TxContext): Coin<P> {
-    assert_exec(vault, cap);
-    let bal: &mut Balance<P> = df::borrow_mut(&mut vault.id, PlpKey {});
-    coin::from_balance(balance::split(bal, amount), ctx)
-}
-
-/// Read the vault's held PLP balance (0 if none).
-public fun plp_balance<Q, S, P>(vault: &Vault<Q, S>): u64 {
-    if (df::exists(&vault.id, PlpKey {})) {
-        let bal: &Balance<P> = df::borrow(&vault.id, PlpKey {});
-        balance::value(bal)
-    } else { 0 }
 }
 
 // ─── Test-only helpers ───────────────────────────────────────────────────────

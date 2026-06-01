@@ -133,8 +133,8 @@ export async function composeAction(
       const amount6 = toRaw6(action.amount);
       const [coin, receipt] = vault.deployIdle(tx, amount6);
       const plp = predictSupply(tx, coin);
-      // PLP coin is held by the rebalancer EOA; vault only tracks the quantity.
-      tx.transferObjects([plp], tx.pure.address(clients.address));
+      // PLP coin is custodied IN THE VAULT (dynamic field), not the EOA. Non-custodial.
+      vault.storePlp(tx, plp);
       vault.confirmDeploy(tx, receipt, amount6);
       break;
     }
@@ -143,8 +143,9 @@ export async function composeAction(
     case 'redeem_plp': {
       const plp6 = toRaw6(action.plpAmount);
       const receipt = vault.requestRedeem(tx, plp6);
-      // Pull PLP out of the manager, withdraw to Coin<T>, hand back to vault.
-      const plpCoin = managerWithdraw(tx, plp6);
+      // Take PLP from the VAULT (not the manager), redeem via predict::withdraw
+      // (needs no owner) -> DUSDC back to the vault. Fully non-custodial.
+      const plpCoin = vault.takePlp(tx, plp6);
       const coin = predictWithdraw(tx, plpCoin);
       vault.confirmRedeem(tx, receipt, coin);
       break;

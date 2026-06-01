@@ -54,3 +54,10 @@
 - Contract change: authorize_range now pulls funding from idle + returns coin
   (closed the deploy/record gap the original author flagged as TODO). Republished
   as v2: 0x2f8f55dacfcac4f0b9d56cf3cfc3fd560dc2ee7d70552947fd8aacc384bd4d09.
+
+## Old leaked PLP in EOA (pre-v3.2, harmless)
+~20.5M PLP units across 3 coins in the deployer EOA are leftover from v2/v3-era rebalances
+that used the old transfer([plp], EOA) code (before store_plp). Orphaned test value, NOT part
+of the v3.2 vault accounting. v3.2 custodies PLP in the vault (PROVEN: Balance<PLP> dynamic
+field value 7490706 under PlpKey, tx HnQvMr3N). Optional cleanup: redeem EOA PLP to DUSDC.
+Do NOT inject into v3.2 vault (would inflate NAV with no matching share).
