@@ -1,26 +1,21 @@
 /// Floe — the verifiable, options-native vault LAYER for Sui.
 ///
-/// v3.2 (FINAL structural version): factory-deployable, curator-owned,
-/// policy-constrained, fee-bearing, agent-operable vaults generic over quote
-/// asset Q and per-vault share Coin S. Provable NAV (Nautilus), audited history
-/// (Walrus), private alpha (Seal) are layer guarantees every vault inherits.
+/// v3: factory-deployable, curator-owned, policy-constrained, fee-bearing vaults,
+/// generic over quote asset Q and per-vault share Coin S. Provable NAV (Nautilus),
+/// audited history (Walrus), private alpha (Seal) are layer guarantees every vault
+/// inherits. Agents operate vaults via attenuated ExecCaps (v3.1).
 ///
-/// After v3.2: only additive FUNCTION upgrades — no struct changes. Custody
-/// (DeepBook caps, PLP balance) attaches via dynamic fields in Phase 2.
-///
-/// Revenue: curators charge mgmt+perf fees (capped 3%/20%); Floe takes a
-/// protocol cut (10%, or 15% for attested vaults) OUT OF the curator's fee —
-/// depositor pays once. Protocol fee shares accrue to the FloeTreasury.
-///
-/// Capabilities (attenuation): OwnerCap (governance) / CuratorCap (config,
-/// agents) / ExecCap (execution; full when mandate=None, attenuated for agents).
+/// Capabilities (attenuation model):
+///   OwnerCap   — governance: pause, register enclave. No fund movement.
+///   CuratorCap — configures the vault: policy, fees, strategy blob; (v3.1) agents.
+///   ExecCap    — execution authority. Full when mandate=None (rebalancer/enclave);
+///                attenuated when mandate=Some (agent, narrowed + revocable, v3.1).
 module floe::floe;
 
 use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin, TreasuryCap};
 use sui::table::{Self, Table};
 use sui::clock::Clock;
-use sui::event;
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
 const EVaultPaused: u64 = 2;
@@ -31,17 +26,16 @@ const EPlpFloorBreached: u64 = 6;
 const EPositionNotFound: u64 = 7;
 const EWrongVault: u64 = 8;
 const ESharesExceedSupply: u64 = 9;
+// v3 policy errors
 const EOracleNotAllowed: u64 = 10;
 const EPositionTooLarge: u64 = 11;
 const EExposureExceeded: u64 = 12;
 const EStratumDisabled: u64 = 13;
 const ELeverageExceeded: u64 = 14;
-const EMandateExpired: u64 = 15;        // reserved (v3.1)
-const EMandateRevoked: u64 = 16;        // reserved (v3.1)
-const EMandateCyclesExhausted: u64 = 17;// reserved (v3.1)
-const EFeeTooHigh: u64 = 18;            // v3.2 revenue
-const ECapacityExceeded: u64 = 19;      // v3.2 capacity
-const EDepositsFrozen: u64 = 20;        // v3.2 deprecation
+// v3.1 mandate errors (reserved)
+const EMandateExpired: u64 = 15;
+const EMandateRevoked: u64 = 16;
+const EMandateCyclesExhausted: u64 = 17;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const PRICE_STALENESS_LIMIT_MS: u64 = 3_600_000;
@@ -51,15 +45,8 @@ const MIN_FIRST_DEPOSIT: u64 = 1_000_000;
 const MS_PER_YEAR: u64 = 31_557_600_000;          // 365.25 days
 const BPS_DENOM: u64 = 10_000;
 const PLP_PRICE_SCALE: u64 = 1_000_000_000;       // 9dp
-const CONTRACT_VERSION: u64 = 1;
 
-// Fee caps + protocol cut (revenue)
-const MAX_MGMT_FEE_BPS: u64 = 300;                // 3% hard cap
-const MAX_PERF_FEE_BPS: u64 = 2_000;              // 20% hard cap
-const DEFAULT_PROTOCOL_FEE_BPS: u64 = 1_000;      // Floe takes 10% of curator fees
-const ATTESTED_PROTOCOL_FEE_BPS: u64 = 1_500;     // 15% for attested (provable-NAV) vaults
-
-// Stratum bitmask
+// Stratum bitmask for PolicyConfig.enabled_strata
 const STRATUM_PLP: u8 = 1;
 const STRATUM_RANGE: u8 = 2;
 const STRATUM_HEDGE: u8 = 4;
@@ -82,7 +69,7 @@ public struct RangeAuthReceipt { vault_id: ID, funded: u64 }
 public struct RangeRedeemReceipt { vault_id: ID, position_id: ID }
 public struct HedgeReceipt { vault_id: ID }
 
-// ─── Policy + fees ───────────────────────────────────────────────────────────
+// ─── Policy + fees (curator-set, contract-enforced) ──────────────────────────
 public struct PolicyConfig has store, copy, drop {
     allowed_oracles: vector<ID>,
     max_position_size: u64,
@@ -96,10 +83,8 @@ public struct FeeConfig has store, copy, drop {
     management_fee_bps: u64,
     performance_fee_bps: u64,
     fee_recipient: address,
-    high_water_mark: u64,
+    high_water_mark: u64,   // peak share_price seen (6dp)
     last_accrued_ms: u64,
-    protocol_fee_bps: u64,   // Floe's cut of the fee shares (10% or 15% attested)
-    attested: bool,          // true once an enclave is registered (provable NAV)
 }
 
 // ─── Agent mandate (attenuation; issued in v3.1) ─────────────────────────────
@@ -110,10 +95,10 @@ public struct Mandate has store, drop {
     max_cycles: u64,
     cycles_used: u64,
     revoked: bool,
-    mandate_policy: Option<PolicyConfig>,   // tighter-than-vault policy the agent runs under
 }
 
-// ─── The vault (FINAL struct) ────────────────────────────────────────────────
+// ─── The vault ───────────────────────────────────────────────────────────────
+/// Generic over quote asset Q and per-vault share Coin S.
 public struct Vault<phantom Q, phantom S> has key {
     id: UID,
     owner: address,
@@ -138,15 +123,6 @@ public struct Vault<phantom Q, phantom S> has key {
     policy: PolicyConfig,
     fees: FeeConfig,
     strategy_config_blob: vector<u8>,
-    // v3.2 additions
-    version: u64,
-    deposits_frozen: bool,
-    max_capacity: u64,           // 0 = uncapped
-    predict_operator: address,   // owns the PredictManager: interim Floe key -> enclave
-    seal_access_id: Option<ID>,  // Seal access-policy ref (reserved, Phase 6)
-    protocol_treasury: address,  // where Floe's protocol fee shares go
-    // Custody (DeepBook WithdrawCap/DepositCap/TradeCap, Balance<PLP>) attaches
-    // as DYNAMIC FIELDS on this UID in Phase 2 — no struct change, no DeepBook dep here.
 }
 
 // ─── Capabilities ────────────────────────────────────────────────────────────
@@ -154,43 +130,21 @@ public struct OwnerCap has key, store { id: UID, vault_id: ID }
 public struct CuratorCap has key, store { id: UID, vault_id: ID }
 public struct ExecCap has key, store { id: UID, vault_id: ID, mandate: Option<Mandate> }
 
-// ─── Registries + treasury (shared, created in init) ─────────────────────────
+// ─── Registry (layer directory) ──────────────────────────────────────────────
 public struct VaultInfo has store, copy, drop {
     vault_id: ID,
     curator: address,
     name: vector<u8>,
     strategy_kind: vector<u8>,
 }
-public struct VaultRegistry has key { id: UID, vaults: vector<VaultInfo>, protocol_treasury: address }
+public struct VaultRegistry has key { id: UID, vaults: vector<VaultInfo> }
 
-public struct AgentInfo has store, copy, drop {
-    agent_id: ID,
-    vault_id: ID,
-    authorized_by: address,
-    active: bool,
-}
-public struct AgentRegistry has key { id: UID, agents: vector<AgentInfo> }
-
-/// Floe's on-chain revenue sink. Protocol fee shares (Coin<S> of every vault)
-/// are transferred to this object's address — visible, auditable protocol revenue.
-public struct FloeTreasury has key { id: UID }
-
-// ─── Events ──────────────────────────────────────────────────────────────────
-public struct DepositEvent has copy, drop { vault_id: ID, who: address, amount: u64, shares: u64 }
-public struct WithdrawEvent has copy, drop { vault_id: ID, who: address, shares: u64, payout: u64 }
-public struct FeeAccrued has copy, drop { vault_id: ID, curator_shares: u64, protocol_shares: u64 }
-public struct VaultDeployed has copy, drop { vault_id: ID, curator: address, name: vector<u8> }
-
-// ─── Init: create the three shared objects once at publish ───────────────────
+// ─── Init: create the shared registry once at publish ────────────────────────
 fun init(ctx: &mut TxContext) {
-    let treasury = FloeTreasury { id: object::new(ctx) };
-    let treasury_addr = object::uid_to_address(&treasury.id);
-    transfer::share_object(treasury);
-    transfer::share_object(VaultRegistry { id: object::new(ctx), vaults: vector[], protocol_treasury: treasury_addr });
-    transfer::share_object(AgentRegistry { id: object::new(ctx), agents: vector[] });
+    transfer::share_object(VaultRegistry { id: object::new(ctx), vaults: vector[] });
 }
 
-// ─── Config constructors ─────────────────────────────────────────────────────
+// ─── Config constructors (used by SDK / CLI to build policy + fees) ──────────
 public fun new_policy(
     allowed_oracles: vector<ID>,
     max_position_size: u64,
@@ -210,27 +164,29 @@ public fun new_fees(
     performance_fee_bps: u64,
     fee_recipient: address,
 ): FeeConfig {
-    assert!(management_fee_bps <= MAX_MGMT_FEE_BPS, EFeeTooHigh);
-    assert!(performance_fee_bps <= MAX_PERF_FEE_BPS, EFeeTooHigh);
     FeeConfig {
         management_fee_bps, performance_fee_bps, fee_recipient,
         high_water_mark: INITIAL_SHARE_PRICE, last_accrued_ms: 0,
-        protocol_fee_bps: DEFAULT_PROTOCOL_FEE_BPS, attested: false,
     }
 }
 
+/// Default policy: all strata on, generous caps. Curators tighten as needed.
 public fun default_policy(allowed_oracles: vector<ID>): PolicyConfig {
     PolicyConfig {
         allowed_oracles,
-        max_position_size: 18_446_744_073_709_551_615,
+        max_position_size: 18_446_744_073_709_551_615, // u64 max = uncapped
         max_total_exposure: 18_446_744_073_709_551_615,
-        max_leverage_bps: 30_000,
+        max_leverage_bps: 30_000,                       // 3x
         enabled_strata: STRATUM_PLP | STRATUM_RANGE | STRATUM_HEDGE,
         plp_floor_bps: DEFAULT_PLP_FLOOR_BPS,
     }
 }
 
-// ─── Factory ─────────────────────────────────────────────────────────────────
+// ─── Factory: permissionless vault deployment ────────────────────────────────
+/// Deploy a curator-owned vault. The caller supplies a freshly-published share
+/// TreasuryCap<S> (per-vault share Coin) and the provisioned DeepBook managers.
+/// Shares the vault, appends to the registry, returns Owner+Curator caps and
+/// transfers a full-authority ExecCap (rebalancer seat) to the curator.
 public fun deploy_vault<Q, S>(
     registry: &mut VaultRegistry,
     share_treasury: TreasuryCap<S>,
@@ -273,12 +229,6 @@ public fun deploy_vault<Q, S>(
         policy,
         fees,
         strategy_config_blob: vector[],
-        version: CONTRACT_VERSION,
-        deposits_frozen: false,
-        max_capacity: 0,
-        predict_operator: curator,
-        seal_access_id: option::none(),
-        protocol_treasury: registry.protocol_treasury,
     };
 
     let vault_id = object::id(&vault);
@@ -287,7 +237,6 @@ public fun deploy_vault<Q, S>(
     let exec_cap = ExecCap { id: object::new(ctx), vault_id, mandate: option::none() };
 
     registry.vaults.push_back(VaultInfo { vault_id, curator, name, strategy_kind });
-    event::emit(VaultDeployed { vault_id, curator, name });
 
     transfer::public_transfer(exec_cap, curator);
     transfer::share_object(vault);
@@ -319,14 +268,6 @@ public fun idle_value<Q, S>(vault: &Vault<Q, S>): u64 { balance::value(&vault.id
 public fun curator<Q, S>(vault: &Vault<Q, S>): address { vault.curator }
 public fun owner<Q, S>(vault: &Vault<Q, S>): address { vault.owner }
 public fun high_water_mark<Q, S>(vault: &Vault<Q, S>): u64 { vault.fees.high_water_mark }
-public fun version<Q, S>(vault: &Vault<Q, S>): u64 { vault.version }
-public fun is_attested<Q, S>(vault: &Vault<Q, S>): bool { vault.fees.attested }
-public fun protocol_fee_bps<Q, S>(vault: &Vault<Q, S>): u64 { vault.fees.protocol_fee_bps }
-public fun max_capacity<Q, S>(vault: &Vault<Q, S>): u64 { vault.max_capacity }
-public fun deposits_frozen<Q, S>(vault: &Vault<Q, S>): bool { vault.deposits_frozen }
-public fun predict_operator<Q, S>(vault: &Vault<Q, S>): address { vault.predict_operator }
-public fun protocol_treasury_addr(registry: &VaultRegistry): address { registry.protocol_treasury }
-public fun vault_count(registry: &VaultRegistry): u64 { registry.vaults.length() }
 
 // ─── NAV ─────────────────────────────────────────────────────────────────────
 public fun total_assets<Q, S>(vault: &Vault<Q, S>): u64 {
@@ -358,23 +299,39 @@ fun mul_div(a: u64, b: u64, c: u64): u64 {
     ((a as u128) * (b as u128) / (c as u128)) as u64
 }
 
-// ─── Fees: accrue by minting shares, split curator / protocol ────────────────
+// ─── Fees: accrue by minting shares (Lagoon/Enzyme model, HWM) ───────────────
+//
+// Management: annualized % of NAV, pro-rata by elapsed time.
+// Performance: % of NAV gains above the high-water mark only (never double-charged).
+// Both expressed in ASSETS, converted to shares once, minted to the recipient
+// (dilution, never asset-skimming — preserves NAV per ERC-4626 best practice).
+// Accrued before any share-price-dependent op so deposits/withdrawals price fairly.
 fun accrue_fees<Q, S>(vault: &mut Vault<Q, S>, clock: &Clock, ctx: &mut TxContext) {
     let now = clock.timestamp_ms();
     let supply = vault.share_supply;
-    if (supply == 0) { vault.fees.last_accrued_ms = now; return };
-    let assets = total_assets(vault);
-    if (assets == 0) { vault.fees.last_accrued_ms = now; return };
+    if (supply == 0) {
+        vault.fees.last_accrued_ms = now;
+        return
+    };
 
+    let assets = total_assets(vault);
+    if (assets == 0) {
+        vault.fees.last_accrued_ms = now;
+        return
+    };
+
+    // Management fee in assets: NAV * mgmt_bps * dt / (BPS * year)
     let dt = now - vault.fees.last_accrued_ms;
     let mgmt_assets = mul_div(
-        mul_div(assets, vault.fees.management_fee_bps, BPS_DENOM), dt, MS_PER_YEAR,
+        mul_div(assets, vault.fees.management_fee_bps, BPS_DENOM),
+        dt, MS_PER_YEAR,
     );
 
+    // Performance fee in assets: only on price gain above HWM.
     let price = share_price(vault);
     let mut perf_assets = 0;
     if (price > vault.fees.high_water_mark) {
-        let gain_per_share = price - vault.fees.high_water_mark;
+        let gain_per_share = price - vault.fees.high_water_mark;          // 6dp
         let profit_assets = mul_div(gain_per_share, supply, INITIAL_SHARE_PRICE);
         perf_assets = mul_div(profit_assets, vault.fees.performance_fee_bps, BPS_DENOM);
         vault.fees.high_water_mark = price;
@@ -382,42 +339,35 @@ fun accrue_fees<Q, S>(vault: &mut Vault<Q, S>, clock: &Clock, ctx: &mut TxContex
 
     let fee_assets = mgmt_assets + perf_assets;
     if (fee_assets > 0) {
+        // Convert fee assets to shares at current ratio, then mint (dilution).
         let fee_shares = mul_div(fee_assets, supply, assets);
         if (fee_shares > 0) {
-            // Floe's protocol cut comes OUT OF the curator's fee (depositor pays once).
-            let protocol_shares = mul_div(fee_shares, vault.fees.protocol_fee_bps, BPS_DENOM);
-            let curator_shares = fee_shares - protocol_shares;
+            let fee_coin = coin::mint(&mut vault.share_treasury, fee_shares, ctx);
             vault.share_supply = vault.share_supply + fee_shares;
-            if (curator_shares > 0) {
-                let c = coin::mint(&mut vault.share_treasury, curator_shares, ctx);
-                transfer::public_transfer(c, vault.fees.fee_recipient);
-            };
-            if (protocol_shares > 0) {
-                let p = coin::mint(&mut vault.share_treasury, protocol_shares, ctx);
-                transfer::public_transfer(p, vault.protocol_treasury);
-            };
-            event::emit(FeeAccrued { vault_id: object::id(vault), curator_shares, protocol_shares });
+            transfer::public_transfer(fee_coin, vault.fees.fee_recipient);
         };
     };
     vault.fees.last_accrued_ms = now;
 }
 
-// ─── Deposit / Withdraw ──────────────────────────────────────────────────────
+// ─── Deposit / Withdraw (user-facing) ────────────────────────────────────────
+/// Deposit quote asset Q, receive share Coin S in proportion to NAV. Anyone can call.
 public fun deposit<Q, S>(
-    vault: &mut Vault<Q, S>, payment: Coin<Q>, clock: &Clock, ctx: &mut TxContext,
+    vault: &mut Vault<Q, S>,
+    payment: Coin<Q>,
+    clock: &Clock,
+    ctx: &mut TxContext,
 ): Coin<S> {
     assert_not_paused(vault);
-    assert!(!vault.deposits_frozen, EDepositsFrozen);
     assert!(is_price_fresh(vault, clock), EPriceStale);
-    accrue_fees(vault, clock, ctx);
+    accrue_fees(vault, clock, ctx); // crystallize fees before pricing this deposit
 
     let amount = coin::value(&payment);
     assert!(amount > 0, EZeroAmount);
-    assert!(vault.max_capacity == 0 || total_assets(vault) + amount <= vault.max_capacity, ECapacityExceeded);
 
     let supply = vault.share_supply;
     let shares = if (supply == 0) {
-        assert!(amount >= MIN_FIRST_DEPOSIT, EZeroAmount);
+        assert!(amount >= MIN_FIRST_DEPOSIT, EZeroAmount); // bootstrap / inflation guard
         amount
     } else {
         mul_div(amount, supply, total_assets(vault))
@@ -426,13 +376,15 @@ public fun deposit<Q, S>(
 
     balance::join(&mut vault.idle, coin::into_balance(payment));
     vault.share_supply = vault.share_supply + shares;
-    let out = coin::mint(&mut vault.share_treasury, shares, ctx);
-    event::emit(DepositEvent { vault_id: object::id(vault), who: ctx.sender(), amount, shares });
-    out
+    coin::mint(&mut vault.share_treasury, shares, ctx)
 }
 
+/// Burn share Coin S, receive proportional Q from idle. Rounds DOWN (favors vault).
 public fun withdraw<Q, S>(
-    vault: &mut Vault<Q, S>, shares: Coin<S>, clock: &Clock, ctx: &mut TxContext,
+    vault: &mut Vault<Q, S>,
+    shares: Coin<S>,
+    clock: &Clock,
+    ctx: &mut TxContext,
 ): Coin<Q> {
     assert_not_paused(vault);
     assert!(is_price_fresh(vault, clock), EPriceStale);
@@ -448,14 +400,43 @@ public fun withdraw<Q, S>(
 
     coin::burn(&mut vault.share_treasury, shares);
     vault.share_supply = vault.share_supply - share_amount;
-    let out = coin::from_balance(balance::split(&mut vault.idle, payout), ctx);
-    event::emit(WithdrawEvent { vault_id: object::id(vault), who: ctx.sender(), shares: share_amount, payout });
-    out
+    coin::from_balance(balance::split(&mut vault.idle, payout), ctx)
 }
 
-// ─── Stratum A: PLP supply / redeem ──────────────────────────────────────────
+// ─── Test-only helpers ───────────────────────────────────────────────────────
+#[test_only]
+public struct TEST_SHARE has drop {}
+
+#[test_only]
+public fun test_new_share_treasury(ctx: &mut TxContext): TreasuryCap<TEST_SHARE> {
+    coin::create_treasury_cap_for_testing<TEST_SHARE>(ctx)
+}
+
+#[test_only]
+public fun test_total_assets<Q, S>(vault: &Vault<Q, S>): u64 { total_assets(vault) }
+
+#[test_only]
+public fun test_accrue_fees<Q, S>(vault: &mut Vault<Q, S>, clock: &Clock, ctx: &mut TxContext) {
+    accrue_fees(vault, clock, ctx);
+}
+
+/// Inject quote directly into idle to simulate a NAV gain (test-only).
+#[test_only]
+public fun test_inject_gain<Q, S>(vault: &mut Vault<Q, S>, coin_in: Coin<Q>) {
+    balance::join(&mut vault.idle, coin::into_balance(coin_in));
+}
+
+#[test_only]
+public fun test_init_registry(ctx: &mut TxContext) {
+    transfer::share_object(VaultRegistry { id: object::new(ctx), vaults: vector[] });
+}
+
+// ─── Stratum A: PLP supply / redeem (ExecCap-gated, policy-checked) ──────────
 public fun deploy_idle<Q, S>(
-    vault: &mut Vault<Q, S>, cap: &ExecCap, amount: u64, ctx: &mut TxContext,
+    vault: &mut Vault<Q, S>,
+    cap: &ExecCap,
+    amount: u64,
+    ctx: &mut TxContext,
 ): (Coin<Q>, DeployReceipt) {
     assert_exec(vault, cap);
     assert_not_paused(vault);
@@ -494,17 +475,23 @@ public fun confirm_redeem<Q, S>(vault: &mut Vault<Q, S>, receipt: RedeemReceipt,
     balance::join(&mut vault.idle, coin::into_balance(dusdc_coin));
 }
 
-// ─── Stratum B: range ladder ─────────────────────────────────────────────────
+// ─── Stratum B: range ladder (ExecCap-gated, policy-checked) ─────────────────
 public fun authorize_range<Q, S>(
-    vault: &mut Vault<Q, S>, cap: &ExecCap, oracle_id: ID, amount: u64, ctx: &mut TxContext,
+    vault: &mut Vault<Q, S>,
+    cap: &ExecCap,
+    oracle_id: ID,
+    amount: u64,
+    ctx: &mut TxContext,
 ): (Coin<Q>, RangeAuthReceipt) {
     assert_exec(vault, cap);
     assert_not_paused(vault);
     assert!(amount > 0, EZeroAmount);
+    // POLICY
     assert!(vault.policy.enabled_strata & STRATUM_RANGE != 0, EStratumDisabled);
     assert!(vault.policy.allowed_oracles.contains(&oracle_id), EOracleNotAllowed);
     assert!(amount <= vault.policy.max_position_size, EPositionTooLarge);
     assert!(vault.positions_mark_total + amount <= vault.policy.max_total_exposure, EExposureExceeded);
+    // FLOOR
     assert!(balance::value(&vault.idle) >= amount, EInsufficientShares);
     let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, PLP_PRICE_SCALE);
     let tvl = balance::value(&vault.idle) + plp_value + vault.positions_mark_total;
@@ -517,14 +504,23 @@ public fun authorize_range<Q, S>(
 }
 
 public fun record_range<Q, S>(
-    vault: &mut Vault<Q, S>, receipt: RangeAuthReceipt, position_id: ID, oracle_id: ID,
-    expiry_ms: u64, lower_strike: u64, upper_strike: u64, size: u64, premium_paid: u64, clock: &Clock,
+    vault: &mut Vault<Q, S>,
+    receipt: RangeAuthReceipt,
+    position_id: ID,
+    oracle_id: ID,
+    expiry_ms: u64,
+    lower_strike: u64,
+    upper_strike: u64,
+    size: u64,
+    premium_paid: u64,
+    clock: &Clock,
 ) {
     let RangeAuthReceipt { vault_id, funded: _ } = receipt;
     assert!(vault_id == object::id(vault), EWrongVault);
     let position = RangePosition {
         oracle_id, expiry_ms, lower_strike, upper_strike,
-        size, premium_paid, minted_at_ms: clock.timestamp_ms(), mark_value_cached: premium_paid,
+        size, premium_paid, minted_at_ms: clock.timestamp_ms(),
+        mark_value_cached: premium_paid,
     };
     table::add(&mut vault.positions, position_id, position);
     vault.position_count = vault.position_count + 1;
@@ -558,7 +554,7 @@ public fun confirm_range_redeem<Q, S>(vault: &mut Vault<Q, S>, receipt: RangeRed
     balance::join(&mut vault.idle, coin::into_balance(payout));
 }
 
-// ─── Stratum C: hedge ────────────────────────────────────────────────────────
+// ─── Stratum C: hedge (ExecCap-gated, policy-checked) ────────────────────────
 public fun authorize_hedge<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap): HedgeReceipt {
     assert_exec(vault, cap);
     assert_not_paused(vault);
@@ -567,10 +563,15 @@ public fun authorize_hedge<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap): HedgeR
 }
 
 public fun record_hedge<Q, S>(
-    vault: &mut Vault<Q, S>, receipt: HedgeReceipt, margin_manager_id: ID, notional: u64, is_short: bool,
+    vault: &mut Vault<Q, S>,
+    receipt: HedgeReceipt,
+    margin_manager_id: ID,
+    notional: u64,
+    is_short: bool,
 ) {
     let HedgeReceipt { vault_id } = receipt;
     assert!(vault_id == object::id(vault), EWrongVault);
+    // POLICY: notional must respect the leverage ceiling vs current NAV.
     let nav = total_assets(vault);
     let max_notional = mul_div(nav, vault.policy.max_leverage_bps, BPS_DENOM);
     assert!(notional <= max_notional, ELeverageExceeded);
@@ -581,14 +582,18 @@ public fun record_hedge<Q, S>(
     vault.hedge_is_short = is_short;
 }
 
-// ─── Stratum A: PLP price (attested in Phase 7) ──────────────────────────────
+// ─── Stratum A: attested PLP price (ExecCap-gated) ───────────────────────────
 public fun update_plp_price<Q, S>(
-    vault: &mut Vault<Q, S>, cap: &ExecCap, new_price: u64, plp_held: u64,
-    _attestation: vector<u8>, clock: &Clock,
+    vault: &mut Vault<Q, S>,
+    cap: &ExecCap,
+    new_price: u64,
+    plp_held: u64,
+    _attestation: vector<u8>,
+    clock: &Clock,
 ) {
     assert_exec(vault, cap);
     assert!(new_price > 0, EZeroAmount);
-    // TODO(Phase 7/Nautilus): verify _attestation against vault.enclave_pcr_hash.
+    // TODO(Phase 7): verify _attestation against vault.enclave_pcr_hash.
     vault.plp_price_cached = new_price;
     vault.plp_held = plp_held;
     vault.plp_price_updated_ms = clock.timestamp_ms();
@@ -598,24 +603,11 @@ public fun update_plp_price<Q, S>(
 public fun register_enclave<Q, S>(vault: &mut Vault<Q, S>, cap: &OwnerCap, pcr_hash: vector<u8>) {
     assert_owner(vault, cap);
     vault.enclave_pcr_hash = pcr_hash;
-    // Registering an attested enclave = provable NAV = the 15% premium tier.
-    vault.fees.attested = true;
-    vault.fees.protocol_fee_bps = ATTESTED_PROTOCOL_FEE_BPS;
 }
 
 public fun set_paused<Q, S>(vault: &mut Vault<Q, S>, cap: &OwnerCap, paused: bool) {
     assert_owner(vault, cap);
     vault.paused = paused;
-}
-
-public fun set_deposits_frozen<Q, S>(vault: &mut Vault<Q, S>, cap: &OwnerCap, frozen: bool) {
-    assert_owner(vault, cap);
-    vault.deposits_frozen = frozen;
-}
-
-public fun set_predict_operator<Q, S>(vault: &mut Vault<Q, S>, cap: &OwnerCap, op: address) {
-    assert_owner(vault, cap);
-    vault.predict_operator = op;
 }
 
 // ─── Curator config ──────────────────────────────────────────────────────────
@@ -626,16 +618,9 @@ public fun set_policy<Q, S>(vault: &mut Vault<Q, S>, cap: &CuratorCap, policy: P
 
 public fun set_fees<Q, S>(vault: &mut Vault<Q, S>, cap: &CuratorCap, mgmt_bps: u64, perf_bps: u64, recipient: address) {
     assert_curator_cap(vault, cap);
-    assert!(mgmt_bps <= MAX_MGMT_FEE_BPS, EFeeTooHigh);
-    assert!(perf_bps <= MAX_PERF_FEE_BPS, EFeeTooHigh);
     vault.fees.management_fee_bps = mgmt_bps;
     vault.fees.performance_fee_bps = perf_bps;
     vault.fees.fee_recipient = recipient;
-}
-
-public fun set_max_capacity<Q, S>(vault: &mut Vault<Q, S>, cap: &CuratorCap, capacity: u64) {
-    assert_curator_cap(vault, cap);
-    vault.max_capacity = capacity;
 }
 
 public fun set_strategy_blob<Q, S>(vault: &mut Vault<Q, S>, cap: &CuratorCap, blob: vector<u8>) {
@@ -643,35 +628,8 @@ public fun set_strategy_blob<Q, S>(vault: &mut Vault<Q, S>, cap: &CuratorCap, bl
     vault.strategy_config_blob = blob;
 }
 
-// ─── Audit ───────────────────────────────────────────────────────────────────
+// ─── Audit (ExecCap-gated) ───────────────────────────────────────────────────
 public fun record_walrus_blob<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap, blob_id: vector<u8>) {
     assert_exec(vault, cap);
     vault.walrus_blob_ids.push_back(blob_id);
-}
-
-// ─── Test-only helpers ───────────────────────────────────────────────────────
-#[test_only]
-public struct TEST_SHARE has drop {}
-
-#[test_only]
-public fun test_new_share_treasury(ctx: &mut TxContext): TreasuryCap<TEST_SHARE> {
-    coin::create_treasury_cap_for_testing<TEST_SHARE>(ctx)
-}
-
-#[test_only]
-public fun test_total_assets<Q, S>(vault: &Vault<Q, S>): u64 { total_assets(vault) }
-
-#[test_only]
-public fun test_accrue_fees<Q, S>(vault: &mut Vault<Q, S>, clock: &Clock, ctx: &mut TxContext) {
-    accrue_fees(vault, clock, ctx);
-}
-
-#[test_only]
-public fun test_inject_gain<Q, S>(vault: &mut Vault<Q, S>, coin_in: Coin<Q>) {
-    balance::join(&mut vault.idle, coin::into_balance(coin_in));
-}
-
-#[test_only]
-public fun test_init_registry(ctx: &mut TxContext) {
-    transfer::share_object(VaultRegistry { id: object::new(ctx), vaults: vector[], protocol_treasury: @0xFEE });
 }

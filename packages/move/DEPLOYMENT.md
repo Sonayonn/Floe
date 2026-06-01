@@ -48,3 +48,13 @@
   - Stratum A: PLP supply (Supplied event)
   - Stratum B: 1σ range mint BTC Jun-5, $70,988–$76,293 (RangeMinted event)
   - authorize_range passed v3 policy checks live (oracle allowed, size<=max, floor intact)
+
+## v3.2 (FINAL STRUCTURAL VERSION, published) — revenue + treasury + agent registry + ops fields
+- floe package:    0x1aacf4f9f787807d811c058e4a3194f48b2ad30f50096c0713668b656bbd6003
+- VaultRegistry:   0x3462badecc7b4274b222f3b2bf0f0ddab572c294336ec8e7c7d62f42bf1a2f45
+- FloeTreasury:    0x756dbb6350b61e838afcb81fd1c53975af7b51756f6cc0f6d1981b7df8b2639e
+- AgentRegistry:   0xabf57ae9db406f0c74922e1857da855f00fcb2396ec4ccece9af8af5ffd06ba9
+- UpgradeCap:      0x7a171ad8070516a29c3060acd095cdcd02f5fcbbffc548a48f68b91996d799b7
+- 5 tests green (incl. protocol fee split). Revenue: curator fees capped 3%/20%, Floe takes
+  10% (15% attested) OUT OF curator cut -> FloeTreasury. Events on deposit/withdraw/fee/deploy.
+- FROM HERE: function-only `sui client upgrade` (same package ID). No more from-scratch publishes.
