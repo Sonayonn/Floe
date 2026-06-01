@@ -5,10 +5,10 @@ import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { makeSuiClient } from './lib/sui.js';
 
 // v3 IDs
-const FLOE_PKG  = '0x0fd9662dc900bce48de57a9d1ac6e98d02ff1ce4b1f49b2393e4a776b40d8a9d';
-const REGISTRY  = '0xb1fe225b5e712b8ee2c51a7e76ac0c27732a29834367883004ce358ccb9b1762';   // <-- from the curl above
-const SHARE_TREASURY = '0xa0edc22467b79490c2ba61b6963bf6baaf821a375d4f87ff0f399d74be857b3a';
-const SHARE_TYPE = '0xf49b15cd71c0a9cb7a63ddbcd3a425ec3942ce953a0a3b40b4c0f5f0767f8c23::share::SHARE';
+const FLOE_PKG  = '0x1aacf4f9f787807d811c058e4a3194f48b2ad30f50096c0713668b656bbd6003';
+const REGISTRY  = '0x3462badecc7b4274b222f3b2bf0f0ddab572c294336ec8e7c7d62f42bf1a2f45';   // <-- from the curl above
+const SHARE_TREASURY = '0xddd17e013397e4e5169449e5dfef7a1a94ad2426bad39881ce6f999c6e37e7b0';
+const SHARE_TYPE = '0x120c29a65c10ada7619429e46a608531cfcb4affe14439ca6838aaa77dfd029f::share::SHARE';
 const DUSDC     = '0xe95040085976bfd54a1a07225cd46c8a2b4e8e2b6732f140a0fc49850ba73e1a::dusdc::DUSDC';
 const BALANCE_MANAGER = '0x0b97374737d16df78ed7528d02a7a8f95c3c5235de5b023af749418bed90903b';
 const PREDICT_MANAGER = '0x6ea452565c5ef3916c10f899dae0a307beb1d3dda0b59fabc08a7f315a7373ab';

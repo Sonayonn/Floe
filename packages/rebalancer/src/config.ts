@@ -24,25 +24,27 @@ export const SUI_PRIVATE_KEY = mustEnv('SUI_PRIVATE_KEY');
 
 export const FLOE = {
   /** v1 package (canonical). v0 = 0x3317bc83… exists on chain but is superseded. */
-  packageId: '0x0fd9662dc900bce48de57a9d1ac6e98d02ff1ce4b1f49b2393e4a776b40d8a9d',
+  packageId: '0x1aacf4f9f787807d811c058e4a3194f48b2ad30f50096c0713668b656bbd6003',
 
   /** The live Vault<DUSDC> shared object. */
-  vaultId: '0xea332cc1ae1a4d0903240bc3a65cea4b0894e6a78d4c10b3153cec79a9a8bfbe',
+  vaultId: '0xea33fe41c7512a1a36be417b0ce400ada0db0d9fe54f2ade75662aaef987de2e',
 
   /** Operator authority — config, enclave registration, pause. */
-  ownerCapId: '0x96dd8474eea55f9c7602789e6310b064b9b96549edb3123d2f070e74d4868103',
+  ownerCapId: '0x1c177a80d8ea78b84884944292f9f9af657308c64d5877028de718ff5f851f1e',
 
   /** Rebalancer authority — strategy execution (deploy/range/hedge). */
-  execCapId: '0x8671ff2e5668b00aa40eb2d7c903e3d239994ccc27577139d6b33d6e26f12aef',
-  curatorCapId: '0xd197c4984907a8d2d9bc432c23281073b490089b91e3511d51dd373dea9e12a8',
-  registryId: '0xb1fe225b5e712b8ee2c51a7e76ac0c27732a29834367883004ce358ccb9b1762',
-  sharePackageId: '0xf49b15cd71c0a9cb7a63ddbcd3a425ec3942ce953a0a3b40b4c0f5f0767f8c23',
-  shareType: '0xf49b15cd71c0a9cb7a63ddbcd3a425ec3942ce953a0a3b40b4c0f5f0767f8c23::share::SHARE',
+  execCapId: '0x453356286d5240164af6fe5973adf9d46c18b9b8c4231ffc80e03dd9ea75c10e',
+  curatorCapId: '0xd2c21b75c54d17a3328bb30beb7a1c4728e829618843331611ee1daa0fe240b3',
+  registryId: '0x3462badecc7b4274b222f3b2bf0f0ddab572c294336ec8e7c7d62f42bf1a2f45',
+  treasuryId: '0x756dbb6350b61e838afcb81fd1c53975af7b51756f6cc0f6d1981b7df8b2639e',
+  agentRegistryId: '0xabf57ae9db406f0c74922e1857da855f00fcb2396ec4ccece9af8af5ffd06ba9',
+  sharePackageId: '0x120c29a65c10ada7619429e46a608531cfcb4affe14439ca6838aaa77dfd029f',
+  shareType: '0x120c29a65c10ada7619429e46a608531cfcb4affe14439ca6838aaa77dfd029f::share::SHARE',
 
 
 
   /** UpgradeCap for the package — kept by operator, used for future upgrades. */
-  upgradeCapId: '0xe3f3762eddf5e0cbafb5762baab8d374eebae60397d350fd2993c1ccba06ff20',
+  upgradeCapId: '0x7a171ad8070516a29c3060acd095cdcd02f5fcbbffc548a48f68b91996d799b7',
 
   /** Module name within the package. */
   moduleName: 'floe',
