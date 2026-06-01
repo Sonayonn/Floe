@@ -131,3 +131,21 @@ FeeConfig, same accrue_fees, same protocol split. So agents pay mgmt+perf fees (
 vaults skew to the 15% ATTESTED premium tier (verifiability matters most when no human is
 in the loop). Agents = a fee-generating segment that scales with Sui's agent economy.
 The mandate cannot waive fees or exceed caps — fee terms are the vault's, enforced on-chain.
+
+## Custody language (canonical — use everywhere, do not overclaim)
+HEADLINE: "Floe is the only Sui vault where the curator can never withdraw your funds —
+and where the majority of assets are redeemable with no operator at all."
+
+PRECISE CLAIM: Floe is *curator-non-custodial with progressive custody minimization*:
+  - Curator (CuratorCap + ExecCap) has ZERO withdrawal authority over principal — enforced
+    on-chain by DeepBook's capability model, not by promise. Eliminates the manager-rug risk
+    that every traditional vault carries.
+  - PLP (majority of assets) is FULLY non-custodial: vault holds Coin<PLP>, redeems via
+    predict::withdraw with no privileged key.
+  - Residual surface (range redeem + final settlement withdraw) = ONE attested operator key,
+    which becomes a hardware TEE enclave (no human) at Nautilus. Custody only DECREASES.
+
+DO NOT SAY: "non-custodial" (unqualified), "trustless", "decentralized custody" — overclaims.
+DO SAY: "curator-non-custodial", "progressively keyless", "majority non-custodial today".
+COMPARISON: others = "trust the manager's number, manager can move funds." Floe = "manager
+can never move your funds, the NAV is provable, custody only shrinks from here."
