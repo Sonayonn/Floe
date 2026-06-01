@@ -183,3 +183,11 @@ Predict funds: operated by an interim attested operator, becoming fully enclave-
 - Custody note: a positive DeepBook App-auth reply is a non-breaking UPGRADE to Option 1+3 —
   swap BM creation to new_with_custom_owner_caps<FloeApp> in the provisioning fn only. No struct
   change, no execution-fn change, no republish. Caps-as-dynamic-fields makes the source swappable.
+
+## COMMITTED: real hedge (Stratum C) — no longer a stub
+Wire LIVE Spot/Margin order placement for delta-neutralization (currently a Margin-borrow
+stub w/ geometric-proxy delta). Makes Stratum C genuine and uses DEEP (vault BM holds DEEP +
+collateral via DepositCap from Stage 2). Sequencing: AFTER Stage 2 cap custody lands (the
+hedge needs the vault-held TradeCap/DepositCap to place orders non-custodially). So:
+Stage 2 (cap custody) -> real hedge wiring -> then SDK/Nautilus per plan. Real greeks (gap #3)
+fold into this hedge work.
