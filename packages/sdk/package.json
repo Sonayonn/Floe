@@ -1,0 +1,23 @@
+{
+  "name": "@floe/sdk",
+  "version": "0.1.0",
+  "description": "Floe \u2014 the verifiable, options-native vault layer for Sui. TypeScript SDK.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "tsx examples/read-live.ts"
+  },
+  "dependencies": {
+    "@mysten/sui": "1.45.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0"
+  }
+}
