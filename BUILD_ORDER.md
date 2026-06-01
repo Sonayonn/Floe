@@ -10,10 +10,9 @@ policy-constrained, fee-bearing primitive. The hard-won parts survive intact:
 receipt/custody mechanics, O(1) NAV, capability gating, Stratum logic, the proven
 live rebalance. We extend; we don't rewrite.
 
-Open design fork (resolve in Phase 1): per-vault share tokens. Sui can't mint a new
-Coin type per vault dynamically. (A) shares tracked per-vault as balances/objects —
-works now, demoable, not a fungible Coin; (B) fungible per-vault Coin shares (Abyss
-aToken-style composability), heavier. Recommendation: ship (A), design for (B) later.
+RESOLVED (Phase 1): shipped (B) — per-vault FUNGIBLE Coin shares (Abyss aToken-style
+composability). Vault is generic over share type S; SDK publishes a tiny share module per
+vault. Proven on chain. (A) rejected — first-class composable shares were worth the cost.
 
 ## What we absorb (mapped)
 - Ember (permissionless curator vaults, real seed) -> factory + curator + registry; visible seed
@@ -152,28 +151,33 @@ provisioning/SDK. New order: P1 ✅ -> P2 (provisioning + v3.2 custody) -> P3 (S
 agent caps) -> NAUTILUS (was P7) -> P4 (2nd vault + agent vault) -> Walrus -> Seal ->
 app -> backtest -> submission.
 
-## CUSTODY MODEL (v3.2) — non-custodial, two managers, two paths
-BalanceManager (Spot/Margin hedge funds): FULLY non-custodial NOW. Owner = vault address
-(keyless, no signer can ever own-withdraw). Vault holds WithdrawCap + DepositCap + TradeCap
-in its struct; all access via policy-gated, receipt-enforced vault functions. No human key
-can drain. Built in v3.2.
+## CUSTODY MODEL — VERIFIED against live testnet ABI (supersedes earlier 3-cap notes)
+Testnet balance_manager (0xfb28c4...) is the TWO-tier model (owner + TradeCap), NOT the
+3-cap (Withdraw/Deposit/Trade) model in main-branch docs. Verified from chain ABI.
 
-PredictManager (PLP + ranges = majority of funds): owner-only withdraw, NO cap delegation,
-so keyless-owner is impossible (would lock funds). Custody = an abstracted "attested
-operator" role:
-  - INTERIM (until Nautilus): a Floe-controlled operator key owns the PredictManager.
-    EXPLICITLY LABELED in contract + docs as interim. This is the one custodial surface.
-  - ENDPOINT (Nautilus phase): PredictManager owned by an address whose key lives ONLY
-    inside the attested TEE enclave. No human holds it. Withdrawals only via attested
-    enclave execution. Custody FUSES with the moat: the same attestation proving NAV also
-    IS the custody mechanism. "Predict funds controlled by attested hardware, not a person."
-v3.2 writes the withdrawal path through the abstracted operator role so the enclave slots
-in at the Nautilus phase with no further contract change.
+- PLP (MAJORITY of capital): FULLY non-custodial NOW. Vault holds Balance<PLP> dynamic field
+  (store_plp), redeems via predict::withdraw (needs no owner). PROVEN on chain (tx HnQvMr3N).
+- BalanceManager TRADE authority: delegable via a vault-held TradeCap -> built WITH the real
+  hedge (deferred; hedge is the only BM trader, still a stub). mint_trade_cap returns nothing
+  (transfers cap to sender), so: mint -> then store TradeCap in vault as a dynamic field.
+- BalanceManager + PredictManager DEPOSIT/WITHDRAW: owner-only, NO cap delegation (DeepBook's
+  design). = the interim attested-operator surface -> becomes the Nautilus enclave address.
+  predict_operator field (v3.2 struct) already holds this.
 
-## DEMO CLAIM (honest)
-"Spot/Margin collateral: fully non-custodial today (vault-held caps, keyless owner).
-Predict funds: operated by an interim attested operator, becoming fully enclave-custodied
-(no human key) when Nautilus lands — architecture shipped, key migration is the only step."
+NOTE: v3.2 shipped provision_caps + borrow_withdraw_cap + borrow_deposit_cap assuming the
+3-cap model — UNUSED on this testnet API (harmless, function-only, never called). Use a
+1-cap provision_trade_cap when wiring the hedge, or revisit if DeepBook App-auth/newer pkg lands.
+
+## DEMO CLAIM (honest, verified)
+"Curator-non-custodial with progressive custody minimization: the curator can NEVER withdraw
+principal (enforced on-chain). PLP — the majority of assets — is fully non-custodial, redeemed
+by the vault itself. Fund-movement (deposit/withdraw) is operated by an attested operator that
+becomes a hardware enclave (no human key) at Nautilus. Custody only shrinks."
+
+## LESSON BANKED (standing): verify the LIVE chain ABI before integration code
+README, main-branch source, and SDK docs described a NEWER DeepBook than what's deployed on
+testnet. getNormalizedMoveModulesByPackage(pkg) is the only ground truth. Check it FIRST for
+every external package we integrate (coin_registry, Walrus, Seal, Nautilus, Predict).
 
 ## Reusable references from Mysten predict-workshop (db-predict-workshop, branch tlee/predict-workshop)
 - portfolio.html — reference UI reading oracle/position/portfolio state from the indexer.
