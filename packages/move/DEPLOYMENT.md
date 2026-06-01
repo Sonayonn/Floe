@@ -58,3 +58,10 @@
 - 5 tests green (incl. protocol fee split). Revenue: curator fees capped 3%/20%, Floe takes
   10% (15% attested) OUT OF curator cut -> FloeTreasury. Events on deposit/withdraw/fee/deploy.
 - FROM HERE: function-only `sui client upgrade` (same package ID). No more from-scratch publishes.
+
+## v3.2 upgrades (function-only, same lineage)
+- V2 0xaed09729...  (PLP custody: store_plp/take_plp)
+- V4 0xe88fc982a8e50694fbf4870033be73c6f60c3595a424069d29ff77483848ac4c  (cap custody:
+  provision_caps + borrow/return hot-potato). CURRENT package id for calls.
+  (V3 was an identical-code re-publish of V2's upgrade; V4 supersedes — harmless.)
+- Always read the "Published Objects: PackageID" line after upgrade; Move.lock 'version' tracks it.

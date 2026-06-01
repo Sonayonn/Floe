@@ -24,7 +24,7 @@ export const SUI_PRIVATE_KEY = mustEnv('SUI_PRIVATE_KEY');
 
 export const FLOE = {
   /** v1 package (canonical). v0 = 0x3317bc83… exists on chain but is superseded. */
-  packageId: '0xaed09729bf95ccb1203b1c1f2371bf14ae35859998e785917afe23a834ef87ba',
+  packageId: '0xe88fc982a8e50694fbf4870033be73c6f60c3595a424069d29ff77483848ac4c',
 
   /** The live Vault<DUSDC> shared object. */
   vaultId: '0xea33fe41c7512a1a36be417b0ce400ada0db0d9fe54f2ade75662aaef987de2e',
