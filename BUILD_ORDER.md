@@ -174,3 +174,12 @@ in at the Nautilus phase with no further contract change.
 "Spot/Margin collateral: fully non-custodial today (vault-held caps, keyless owner).
 Predict funds: operated by an interim attested operator, becoming fully enclave-custodied
 (no human key) when Nautilus lands — architecture shipped, key migration is the only step."
+
+## Reusable references from Mysten predict-workshop (db-predict-workshop, branch tlee/predict-workshop)
+- portfolio.html — reference UI reading oracle/position/portfolio state from the indexer.
+  Reuse for: the app's position + NAV display (Phase 8).
+- listPositions.ts / listMarkets.ts — how to read oracles, positions, SVI/strike grids from
+  predict-server. Reuse for: Phase 7 mark-position-from-SVI (gap #3) and the app's market list.
+- Custody note: a positive DeepBook App-auth reply is a non-breaking UPGRADE to Option 1+3 —
+  swap BM creation to new_with_custom_owner_caps<FloeApp> in the provisioning fn only. No struct
+  change, no execution-fn change, no republish. Caps-as-dynamic-fields makes the source swappable.
