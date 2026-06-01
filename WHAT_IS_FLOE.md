@@ -123,3 +123,11 @@ AGENT INFRASTRUCTURE (real, built to the same rigor):
 - authorize_agent / revoke_agent (curator-gated issuance + revocation)
 - AgentRegistry (discoverable first-class agent operators + delegation chain + attestation state)
 - Per-action mandate + attestation re-evaluation
+
+## Revenue: agents pay fees too (a feature, not a loophole)
+An agent-operated vault is structurally just a vault with an attenuated ExecCap — same
+FeeConfig, same accrue_fees, same protocol split. So agents pay mgmt+perf fees (capped
+3%/20%) and Floe takes its 10% protocol cut automatically, no agent-specific logic. Agent
+vaults skew to the 15% ATTESTED premium tier (verifiability matters most when no human is
+in the loop). Agents = a fee-generating segment that scales with Sui's agent economy.
+The mandate cannot waive fees or exceed caps — fee terms are the vault's, enforced on-chain.
