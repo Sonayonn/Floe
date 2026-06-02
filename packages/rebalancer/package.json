@@ -12,7 +12,8 @@
     "@mysten/deepbook-v3": "0.28.3",
     "@mysten/sui": "1.45.2",
     "@pythnetwork/pyth-sui-js": "3.0.0",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "@floe/sdk": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

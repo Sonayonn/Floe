@@ -382,3 +382,18 @@ not a token launch.
 
 *Last updated: end of Day 4 (May 19, 2026). This document evolves with
 the build.*
+
+## VenueModule roadmap (all implement the SAME uniform interface)
+The interface (decide / compose / value) is defined in Phase 3d; each venue is one
+implementation. Order chosen by archetype difficulty + TVL:
+1. DeepBook (Archetype 3, manager) — REFERENCE module, shipped (PLP + ranges + hedge). [3d]
+2. Suilend (Archetype 1, fungible cToken, $745M) — first ADDITIONAL venue; validates the
+   dispatch layer with a real 2nd instance. PROVEN on chain in a multi-venue vault. [Phase 4]
+3. Volo / Haedal (Archetype 1, LST receipt vSUI/haSUI) — trivial after Suilend (same shape:
+   stake -> appreciating receipt -> value by exchange rate -> unstake). [Phase 6 venue-mix vault]
+4. NAVI (Archetype 1, nToken receipt, $723M) — same fungible-receipt shape. [Phase 6/roadmap]
+5. Cetus (Archetype 2, CLMM Position NFT) — hardest: NFT held as dynamic-field object, valued
+   via liquidity(nft) + pool tick/price math; IL exposure. [post-hackathon / stretch]
+Each is ~1 module file implementing decide/compose/value. The uniform interface (Yearn-v3
+validated shape) is what makes "Floe allocates across venues" a real, extensible seam — and a
+clean interface others can implement against IS the infra proof, even before all 5 ship.

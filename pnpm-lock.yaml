@@ -10,6 +10,9 @@ importers:
 
   packages/rebalancer:
     dependencies:
+      '@floe/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@mysten/deepbook-v3':
         specifier: 0.28.3
         version: 0.28.3(typescript@5.9.3)

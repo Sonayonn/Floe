@@ -24,3 +24,6 @@ export const Fees = { ...feesCfg };
 export type { VaultState } from './vault/read.ts';
 export type { VaultInfo } from './registry.ts';
 export type { ProtocolRevenue } from './treasury.ts';
+
+// Venue layer (the multi-venue spine)
+export type { VenueModule, VenueValuation } from './venues/types.ts';
