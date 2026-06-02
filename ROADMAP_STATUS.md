@@ -48,3 +48,11 @@ Flagship strategy = DeFi Option Vault (Stratos) on DeepBook Predict.
 ## CUT ORDER (if time runs short; never cut the first two)
 NEVER CUT: provable/attested NAV (the moat); the multi-venue interface proof.
 Cut from the bottom: Python SDK -> deeper Cetus -> backtest baselines -> Walrus/Seal polish -> 2nd-vault polish.
+
+## VENUE BREADTH — SETTLED (verified on-chain)
+Probed testnet: Suilend (mainnet-only), NAVI (stale/uncertain), Volo (mainnet pkg absent on testnet),
+Haedal (mainnet-only — pkg 0x3f4576.. and haSUI 0xbde4b.. both absent on testnet). Only DeepBook +
+Cetus are live on testnet. DECISION: two real venues (DeepBook live, Cetus verified/integration-ready)
++ labeled mainnet roadmap for the rest, all behind the uniform VenueModule interface. This is the
+mentor-endorsed approach (two venues real, others as labeled roadmap). Do NOT write unverifiable
+mainnet stubs presented as integration (judge-slash risk). Venue breadth is closed; not the critical path.
