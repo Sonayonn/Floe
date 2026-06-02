@@ -22,8 +22,6 @@ use sui::table::{Self, Table};
 use sui::clock::Clock;
 use sui::dynamic_field as df;
 use sui::event;
-use sui::ed25519;
-use std::bcs;
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
 const EVaultPaused: u64 = 2;
@@ -45,10 +43,6 @@ const EMandateCyclesExhausted: u64 = 17;// reserved (v3.1)
 const EFeeTooHigh: u64 = 18;            // v3.2 revenue
 const ECapacityExceeded: u64 = 19;      // v3.2 capacity
 const EDepositsFrozen: u64 = 20;        // v3.2 deprecation
-const EBadAttester: u64 = 24;           // attestation
-const ENoAttester: u64 = 25;
-const EBadAttestation: u64 = 26;
-const EStaleAttestation: u64 = 27;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const PRICE_STALENESS_LIMIT_MS: u64 = 3_600_000;
@@ -586,63 +580,6 @@ public fun record_hedge<Q, S>(
     };
     vault.hedge_notional = notional;
     vault.hedge_is_short = is_short;
-}
-
-/// Dynamic-field key under which the vault stores the attester's Ed25519 public key.
-public struct AttesterKey has copy, drop, store {}
-
-/// Register the attester public key whose signatures gate attested NAV updates.
-/// In production this key lives inside the Nautilus enclave (Tier 2 binds it to a
-/// registered Enclave + PCRs). Owner-only.
-public fun register_attester<Q, S>(vault: &mut Vault<Q, S>, cap: &OwnerCap, pubkey: vector<u8>) {
-    assert_owner(vault, cap);
-    assert!(pubkey.length() == 32, EBadAttester);
-    if (df::exists(&vault.id, AttesterKey {})) {
-        let _old: vector<u8> = df::remove(&mut vault.id, AttesterKey {});
-    };
-    df::add(&mut vault.id, AttesterKey {}, pubkey);
-    // Registering a real attester = provable NAV = the 15% premium tier.
-    vault.fees.attested = true;
-    vault.fees.protocol_fee_bps = ATTESTED_PROTOCOL_FEE_BPS;
-}
-
-/// Read the registered attester pubkey (empty if none).
-public fun attester_pubkey<Q, S>(vault: &Vault<Q, S>): vector<u8> {
-    if (df::exists(&vault.id, AttesterKey {})) {
-        *df::borrow<AttesterKey, vector<u8>>(&vault.id, AttesterKey {})
-    } else { vector[] }
-}
-
-/// Attested NAV update: the operator must present a signature, by the registered
-/// attester key, over BCS(vault_id || plp_price || timestamp_ms). The contract
-/// verifies the signature on-chain before accepting the price. Tamper the price ->
-/// signature fails -> abort. This is the verifiable-NAV moat: NAV is not asserted,
-/// it is cryptographically attested and checked here.
-public fun update_nav_attested<Q, S>(
-    vault: &mut Vault<Q, S>, cap: &ExecCap,
-    plp_price: u64, plp_held: u64, timestamp_ms: u64,
-    signature: vector<u8>, clock: &Clock,
-) {
-    assert_exec(vault, cap);
-    assert!(plp_price > 0, EZeroAmount);
-    assert!(df::exists(&vault.id, AttesterKey {}), ENoAttester);
-    // freshness: timestamp must not go backwards and must be within the recent window
-    let now = clock.timestamp_ms();
-    assert!(timestamp_ms >= vault.plp_price_updated_ms, EStaleAttestation);
-    assert!(timestamp_ms <= now && now - timestamp_ms <= 600_000, EStaleAttestation); // within 10 min, not future
-
-    // reconstruct the signed message: BCS(vault_id, plp_price, timestamp_ms)
-    let mut msg = bcs::to_bytes(&object::id(vault));
-    msg.append(bcs::to_bytes(&plp_price));
-    msg.append(bcs::to_bytes(&timestamp_ms));
-
-    let pubkey = df::borrow<AttesterKey, vector<u8>>(&vault.id, AttesterKey {});
-    let ok = ed25519::ed25519_verify(&signature, pubkey, &msg);
-    assert!(ok, EBadAttestation);
-
-    vault.plp_price_cached = plp_price;
-    vault.plp_held = plp_held;
-    vault.plp_price_updated_ms = timestamp_ms;
 }
 
 // ─── Stratum A: PLP price (attested in Phase 7) ──────────────────────────────
