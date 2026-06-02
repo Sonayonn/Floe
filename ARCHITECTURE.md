@@ -1,3 +1,44 @@
+# Floe — Layer Architecture (the venue-agnostic spine)
+
+> Supplements V3_ARCHITECTURE.md. Captures the multi-venue allocation layer design.
+
+## The core abstraction: VenueAdapter
+Every Sui yield venue reduces to one of three integration archetypes. The layer's spine is a
+single interface every venue implements:
+
+  VenueAdapter:
+    deploy(coin: Coin<Q>) -> Position     // enter the venue
+    value(position) -> u64                 // in vault quote asset Q (feeds NAV)
+    redeem(position, amount) -> Coin<Q>    // exit
+
+NAV = idle + Σ adapter.value(position_i).  This sum is what Nautilus attests.
+Strategy decides WHERE to allocate; VenueAdapter knows HOW.
+
+## The three archetypes (verified against live SDKs/ABIs)
+ARCHETYPE 1 — Fungible yield-bearing receipt coin (dominant, easy):
+  Suilend depositLiquidityAndGetCTokens -> Coin<CToken<P,T>>; value = ctokens × reserve rate.
+  NAVI deposit -> nToken; Volo/Haedal stake -> vSUI/haSUI; DeepBook PLP (shipped).
+  Vault holds Balance<R> as a dynamic field, values from venue reserve state, redeems
+  permissionlessly. Generalizes store_plp -> store_receipt<R>. ~$1.5B+ TVL, ONE pattern.
+ARCHETYPE 2 — NFT position (hard):
+  Cetus CLMM open_position -> Position NFT; value via liquidity(nft) + pool tick/price math;
+  remove_liquidity/close_position to exit. Vault holds the NFT as a dynamic field object.
+ARCHETYPE 3 — Manager/account position (have):
+  DeepBook Predict ranges in a PredictManager; valued via SVI oracle; owner-gated redeem.
+
+## On-chain custody/valuation (generalizing the proven PLP primitive)
+- store_receipt<R> / take_receipt<R> / receipt_value<R>  (PLP = first instance, PROVEN)
+- vault holds a venue-position registry (which receipts/NFTs, per venue)
+- multi-venue NAV: idle + Σ receipt_values + Σ nft_values + marks
+- the SAME Nautilus attestation that signs PLP valuation signs every venue's valuation
+
+## Hackathon scope (disciplined)
+Ship: the VenueAdapter abstraction (real, in SDK + contract) + DeepBook flagship (done) +
+ONE proven additional venue (Suilend) live in a multi-venue vault. That triad = "verifiable
+allocation layer across venues" as real infra. NAVI/Cetus/Volo = roadmap adapters the
+interface already supports — their clean interface IS the infra proof. Roadmap order:
+Suilend (Archetype 1, shipped first) -> Volo/NAVI (Archetype 1, trivial after Suilend) ->
+Cetus (Archetype 2, NFT, post-hackathon).
 # Floe — Architecture
 
 > Floe is a Sui-native structured-product vault built on DeepBook's three

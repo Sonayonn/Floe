@@ -1,62 +1,57 @@
-# Floe — Canonical Positioning
+# Floe — Thesis
 
-> This is the single source of truth for how Floe is described everywhere:
-> landing page, README, demo script, DeepSurge submission, Discord posts.
-> Do not improvise new taglines. Consistency is the point.
+## Hero (10-second version)
+Floe — the verifiable allocation layer for Sui yield.
+Provable NAV across every venue. Structured products on DeepBook as the flagship.
+Impossible anywhere but Sui.
 
-## Hero (the 10-second version)
-**Floe — the only DeFi vault with cryptographically provable NAV.**
-Attested by hardware, audited on-chain, impossible anywhere but Sui.
+## The two-level positioning (resolved — they nest, not compete)
+LAYER (the platform / category claim): the verifiable, curated vault layer that allocates
+across Sui's fragmented yield venues (DeepBook, Suilend, NAVI, Cetus, Volo) and proves its
+NAV. This is the infra claim — Sui's Enzyme/Yearn, with provable backing.
+FLAGSHIP (the killer app on the platform): structured products on DeepBook Predict — options
+on Sui, deepest stack usage, the thing only Floe has. This anchors the DeepBook track.
+One is the platform; the other is the killer app on it. Both true; they reinforce.
 
-## Sub-line (the platform framing)
-The structured-products layer for DeepBook Predict — one vault today,
-every strategy tomorrow.
+## Problem (the opening beat)
+On Sui, both users and developers must be their own portfolio managers across a dozen
+fragmented, self-reporting venues. There is no verifiable, curated layer that allocates across
+them and proves its NAV. (And on-chain options are a $100M underdeveloped market — Sui
+Foundation's own "$100M Opportunity" thesis — which the flagship strategy addresses.)
 
-## Problem framing (the opening beat)
-On-chain options are a $100M market waiting for infrastructure.
-(Echoes Sui Foundation's own "$100M Opportunity" thesis — we are building
-the narrative they published.)
+## The three lessons this encodes (from past hackathon losses)
+1. POSITIONING — "the layer" / "the only verifiable NAV" = category-definer, not participant.
+2. ECOSYSTEM-HERO — "impossible anywhere but Sui" makes the host stack the reason Floe exists;
+   every integration (DeepBook, Suilend, Walrus, Seal, Nautilus) is the sponsor enabling Floe.
+3. SURFACE — "cryptographically provable NAV across venues" reads as a company with a moat,
+   backed by live deployment, on-chain audit trail, SDK, backtest number, company-grade site.
 
-## The three lessons this positioning encodes
-1. POSITIONING — "the only" / "the layer" = category-definer, not participant.
-   Platform, not feature. One reference strategy on an extensible framework.
-2. ECOSYSTEM-HERO — "impossible anywhere but Sui" makes the host's stack the
-   reason Floe exists. Every integration is framed as the sponsor enabling Floe.
-3. SURFACE — "cryptographically provable NAV" reads as a company with a real
-   moat, not a hackathon submission. Backed by: live deployment, backtest
-   performance number, test suite, on-chain audit trail, company-grade site.
+## The moat sentence (uncopyable)
+"Most vaults ask you to trust their numbers. Floe proves them: every NAV update — across every
+venue the vault touches — is computed inside a Nautilus TEE and verified on-chain before it's
+accepted. Structurally impossible on EVM/Solana; only Sui's Nautilus closes this gap."
 
-## The repeatable platform sentence (use verbatim, often)
-"Floe ships one reference strategy, but it's an extensible framework — the same
-TEE-attested, Walrus-audited rails let any builder deploy straddles, iron
-condors, or basis trades on DeepBook's shared liquidity."
+## The layer sentence (use verbatim, often)
+"Floe ships a flagship structured-products strategy on DeepBook, but it's a venue-agnostic
+framework — the same TEE-attested, Walrus-audited rails let any builder allocate across
+Suilend, NAVI, Cetus, Volo, or DeepBook through one interface, and every vault inherits
+provable NAV by default."
 
-## The moat sentence (the uncopyable claim)
-"Most vaults ask you to trust their numbers. Floe proves them: every NAV update
-is computed inside a Nautilus TEE and verified on-chain before it's accepted."
+## The Sui bottleneck (researched 2026)
+Venues exist (Suilend $745M, NAVI $723M, Cetus/Turbos, Volo/Haedal, DeepBook); the allocation
+LAYER does not. Users self-manage across self-reporting apps; developers rebuild the same
+plumbing each time; post-Cetus-exploit the market wants isolated vaults with verifiable
+backing. Floe = the layer. DeepBook Predict structured products = the flagship strategy. The
+Strategy + VenueAdapter interfaces are venue-agnostic by design.
 
-## Competitive frame (from market research, May 2026)
-There IS a "vault infrastructure" category — "Onchain Capital Allocator," ~$10B,
-one of DeFi's fastest-growing. Incumbents:
-- Enzyme (EVM): $147M TVL, 4k+ vaults, "vault-as-a-service," Hedgeweek 2025
-  Blockchain Tech of the Year. Pushing Onyx (modular vault tokenization layer).
-- Sommelier (EVM): strategist-driven cross-chain vaults.
-- Lagoon ($285M), IPOR Fusion ($124M): modular vault frameworks (ERC-7540).
+## Competitive frame
+"Onchain Capital Allocator" is a ~$10B category (Enzyme, Lagoon $285M, IPOR Fusion $124M,
+Sommelier on EVM; Ember on Sui). THE GAP ACROSS ALL: NAV is self-reported — strategy runs on a
+centralized server, results posted on-chain, users trust the numbers. Floe's win: TEE-attested
+NAV verified on-chain before acceptance. EVM winners use a foundational-vault + strategy-
+composition pattern; Floe's engine/strategy/venue split is the same pattern — novel not in
+structure but in PROOF, and in spanning venues no single Sui protocol does.
 
-THE GAP ACROSS ALL OF THEM: NAV is self-reported. They run strategy logic on a
-centralized server, post results on-chain, and ask users to TRUST the numbers.
-The infrastructure exists; the verifiability does not.
-
-FLOE'S WIN: TEE-attested NAV via Nautilus. The contract verifies the enclave
-attestation before accepting a NAV update — cryptographic proof the number came
-from the authorized strategy, not a manager fudging it. Structurally impossible
-on EVM/Solana; only Sui's Nautilus closes this gap.
-
-ONE-LINER: "What Enzyme is to Ethereum, Floe is to DeepBook — the vault
-infrastructure layer — except Floe's NAV is cryptographically provable, which
+ONE-LINER: "What Enzyme is to Ethereum, Floe is to Sui — the vault infrastructure layer —
+except Floe's NAV is cryptographically provable and one vault spans every venue, which
 Enzyme's structurally can't be."
-
-ARCHITECTURE VALIDATION: the EVM vault-infra winners use a foundational-vault +
-higher-level-strategy-composition pattern. Floe's engine/strategy split is the
-same pattern, arrived at independently. We're not novel in structure — we're
-novel in proof.
