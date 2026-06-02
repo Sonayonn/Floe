@@ -56,3 +56,11 @@ Cetus are live on testnet. DECISION: two real venues (DeepBook live, Cetus verif
 + labeled mainnet roadmap for the rest, all behind the uniform VenueModule interface. This is the
 mentor-endorsed approach (two venues real, others as labeled roadmap). Do NOT write unverifiable
 mainnet stubs presented as integration (judge-slash risk). Venue breadth is closed; not the critical path.
+
+## NAUTILUS STAGE A — DONE (live on testnet)
+floe_nav pkg: 0xc9bae1737b1744108491f6c4d7c87128520d6b61151d9e3bc23c262cbc0026e0 (V1)
+  Cap<FLOE_NAV> (owned):          0xe84af0541528abaa11123a2b5a9c9cbee0c4ac18104c4ca3f1a6b3050cb72c9f
+  EnclaveConfig<FLOE_NAV> shared: 0x34e27a1bb7034cc6734c59b631e2362ef5515cd9d139871d8653c584825b7402
+  enclave primitive pkg:          0x8ecf22e78c90c3e32833d76d82415d7e4227ea370bec4efdad4c4830cbda9e49
+Integrates Mysten enclave::verify_signature. BCS payload = IntentMessage{intent(1)+ts(8)+vault_id(32)+nav(8)+plp_price(8)} = 57 bytes (unit-tested).
+MOAT: Tier 1 (live ed25519 NAV attestation) + Stage A (Nautilus primitive deployed). Stage B (AWS Nitro enclave registration) IN PROGRESS.
