@@ -397,3 +397,20 @@ implementation. Order chosen by archetype difficulty + TVL:
 Each is ~1 module file implementing decide/compose/value. The uniform interface (Yearn-v3
 validated shape) is what makes "Floe allocates across venues" a real, extensible seam — and a
 clean interface others can implement against IS the infra proof, even before all 5 ship.
+
+## Phase 4 venue DECISION (verified on-chain, 2026): CETUS
+Probed Sui testnet live: Cetus CLMM is DEPLOYED and LIVE.
+  - config/peripheral pkg: 0xf5ff7d5ba73b581bca6b4b9fa0049cd320360abd154b809f8700a8fd3cfaf7ca
+  - CLMM CORE pkg (pool/position/open_position/add_liquidity): 0x0868b71c0cba55bf0faf6c40df8c179c67a4d0ba0e79965b68b3d72d7dfbf666
+  - live testnet pool (sample): 0xbed3136f15b0ea649fb94bcdf9d3728fb82ba1c3e189bf6062d78ff547850054
+Cetus = Phase 4 real 2nd venue. Archetype 2 (Position NFT): vault holds the Position NFT as a
+dynamic-field object; value via liquidity(nft)+pool price math; redeem via remove_liquidity+
+close_position. A real CLMM DEX on the SAME testnet as the Predict vault -> unified multi-venue
+vault, fully on chain, no mock/cross-network.
+
+Venue reality (verified): Suilend = mainnet-only (STEAMM has testnet scripts only). NAVI =
+testnet uncertain/stale. Volo = mainnet pkg 0x549e8b69 does NOT resolve on testnet (separate
+testnet id undocumented). Cetus = LIVE on testnet (verified). => Cetus is the on-chain 2nd-venue
+proof; Suilend/NAVI/Volo = documented production adapters the same interface drives (mainnet/
+roadmap). Honest story: "two real venues unified on chain today (DeepBook + Cetus); interface
+drives more; mainnet venues plug in when Floe goes mainnet with Predict."

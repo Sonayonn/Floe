@@ -27,3 +27,6 @@ export type { ProtocolRevenue } from './treasury.ts';
 
 // Venue layer (the multi-venue spine)
 export type { VenueModule, VenueValuation } from './venues/types.ts';
+export { CetusModule } from './venues/cetus.ts';
+export { CETUS_TESTNET } from './venues/cetus-config.ts';
+

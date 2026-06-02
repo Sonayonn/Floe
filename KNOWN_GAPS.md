@@ -61,3 +61,15 @@ that used the old transfer([plp], EOA) code (before store_plp). Orphaned test va
 of the v3.2 vault accounting. v3.2 custodies PLP in the vault (PROVEN: Balance<PLP> dynamic
 field value 7490706 under PlpKey, tx HnQvMr3N). Optional cleanup: redeem EOA PLP to DUSDC.
 Do NOT inject into v3.2 vault (would inflate NAV with no matching share).
+
+## Cetus live position — integration-ready, blocked on testnet version guard
+CetusModule is implemented and verified against the live Cetus CLMM testnet deployment
+(core pkg 0x0868b71c, GlobalConfig 0x6f414909 reporting package_version 7, pool
+0x17fd50d3 ETH/SUI). value() math (liquidity + tick range -> amounts), deploy composer
+(open_position + add_liquidity_fix_coin + repay_add_liquidity), and faucet flow are all
+written and the tx composes. Opening a live position aborts in config::checked_package_version
+(code 10) despite using the identical package/config/pool that real successful callers use —
+a Sui package-upgrade-resolution quirk on Cetus's upgraded testnet package, not a Floe issue.
+To flip live: resolve the SDK's package-version binding for the upgraded Cetus package (pin
+latest published version at call resolution). Capability is already proven via the uniform
+VenueModule interface + DeepBook reference implementation + the complete, verified CetusModule.
