@@ -1,0 +1,2 @@
+# Floe NAV enclave makes no outbound API calls (it attests caller-supplied NAV).
+endpoints: []
