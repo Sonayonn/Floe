@@ -22,3 +22,11 @@ with `--features=floe-nav`.
 3. update_pcrs(EnclaveConfig, Cap, pcr0, pcr1, pcr2)
 4. register_enclave(EnclaveConfig, attestation_doc) -> live Enclave object
 5. Enclave signs a NAV -> floe_nav::verify_nav verifies on-chain. Full Tier 3.
+
+## Stage B progress (live on testnet)
+- EIF built locally via StageX reproducible build (deterministic; anyone can rebuild + verify these PCRs):
+  - PCR0/1: 6ee108f6896926ab3dc1ee0edd3c1fdec1a48e958cc4a168d3ef3fb75f5f80181eeb0ee8c96cd466644cd7a81155df8a
+  - PCR2:   21b9efbc184807662e966d34f390821309eeac6802309798826296bf3e8bec7c10edb30948c90ba67310f7b964fc500a
+- update_pcrs REGISTERED on-chain (tx 9UWJJT2nM1aoh7VEMFzed9KCdtExErrLGfkzfjiUfDRU): the EnclaveConfig
+  now requires attestation docs matching these exact measurements.
+- REMAINING: run the EIF on an EC2 Nitro instance -> get attestation document -> register_enclave -> live Enclave object -> verify_nav end-to-end.
