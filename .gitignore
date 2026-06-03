@@ -33,3 +33,4 @@ packages/move/build/
 *.tsbuildinfo
 scripts/data/
 .oracle-monitor-state.json
+nautilus-template/
