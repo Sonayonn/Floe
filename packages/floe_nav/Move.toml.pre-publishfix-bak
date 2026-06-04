@@ -1,0 +1,10 @@
+[package]
+name = "floe_nav"
+edition = "2024"
+
+[dependencies]
+enclave = { git = "https://github.com/MystenLabs/nautilus.git", subdir = "move/enclave", rev = "main" }
+deepbook_predict = { git = "https://github.com/MystenLabs/deepbookv3.git", subdir = "packages/predict", rev = "predict-testnet-4-16" }
+
+[addresses]
+floe_nav = "0x0"

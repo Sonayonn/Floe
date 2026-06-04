@@ -1,0 +1,14 @@
+import { SuiClient, getFullnodeUrl } from '@mysten/sui/client';
+const sui = new SuiClient({ url: getFullnodeUrl('testnet') });
+const o = await sui.getObject({ id:'0xb79524498a9947307e192d8045772150dc47aade4f9e09bd4b6fe3236b9e3125', options:{ showContent:true }});
+const f:any = (o.data?.content as any)?.fields;
+const svi = f.svi.fields;
+const i64 = (x:any)=> x.fields ? (x.fields.is_negative?-1:1)*Number(x.fields.magnitude) : Number(x);
+const S=1e9;
+const a=Number(svi.a)/S, b=Number(svi.b)/S, m=i64(svi.m)/S, rho=i64(svi.rho)/S, sigma=Number(svi.sigma)/S;
+const tte=(Number(f.expiry)-Date.now())/(365.25*24*3600*1000);
+const w0=a+b*(rho*(0-m)+Math.sqrt(m*m+sigma*sigma));
+const iv=Math.sqrt(Math.max(w0,0)/tte)*100;
+console.log(`current params: a=${a.toFixed(6)} b=${b.toFixed(6)} m=${m.toFixed(6)} rho=${rho.toFixed(6)} sigma=${sigma.toFixed(6)} tte=${tte.toFixed(5)}y`);
+console.log(`off-chain IV = ${iv.toFixed(2)}%  |  on-chain returned 51.32%`);
+console.log(iv>48 && iv<54 ? 'MATCH ✓ (on-chain compute correct against live params)' : 'MISMATCH — investigate');

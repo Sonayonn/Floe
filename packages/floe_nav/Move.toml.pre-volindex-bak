@@ -1,0 +1,9 @@
+[package]
+name = "floe_nav"
+edition = "2024"
+
+[dependencies]
+enclave = { git = "https://github.com/MystenLabs/nautilus.git", subdir = "move/enclave", rev = "main" }
+
+[addresses]
+floe_nav = "0x0"

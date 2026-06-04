@@ -1,0 +1,10 @@
+[package]
+name = "floe_vol"
+edition = "2024"
+
+[dependencies]
+deepbook_predict = { git = "https://github.com/MystenLabs/deepbookv3.git", subdir = "packages/predict", rev = "predict-testnet-4-16" }
+
+[addresses]
+floe_vol = "0x0"
+deepbook_predict = "0xf5ea2b3749c65d6e56507cc35388719aadb28f9cab873696a2f8687f5c785138"
