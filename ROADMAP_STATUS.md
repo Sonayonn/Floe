@@ -78,3 +78,28 @@ The complete verifiable-NAV chain is proven end-to-end on testnet:
   [VALID] accepted (tx 4MPDLAcB..); [TAMPERED] rejected (MoveAbort).
 MOAT COMPLETE: Tier 1 (ed25519 NAV attestation) + Stage A (Nautilus primitive integrated) +
 Tier 3 (full AWS Nitro hardware attestation, on-chain verified). Floe NAV is hardware-attested + on-chain-verifiable.
+
+## VOL INDEX (Path A) — DONE (live on-chain, composable)
+floe_vol package: 0xc3400957c89e4be866b31fbb3d7679a5a8723aa789821800c00c245165110f34
+VolIndex (shared): 0x114b2934a04bb9e063bc368ffd6cba06fd821dd54edadd48e5e118e7b57f119a
+floe_vol_index::vol_now(oracle, clock) computes ATM implied vol ENTIRELY ON-CHAIN from DeepBook Predict's
+Block Scholes SVI oracle (SVI total-variance at k=0, integer Newton sqrt, scale 1e9). Synchronously composable
+by any protocol. Math validated: Move unit test test_iv_matches_reference passes (reference 70.9%); live devInspect
+returned 51.32% from current oracle params (cross-checked off-chain — matches; moves with the market = real benchmark).
+update_vol_index snapshots into the shared VolIndex (tx DDwUf7rD..). The Sui implied-vol benchmark, on-chain.
+Note: published as standalone floe_vol pkg (adding deepbook_predict dep via UPGRADE hit FeatureNotYetSupported — same
+pattern as floe_nav; fresh publish is the fix). deepbook_predict linked via cached Published.toml (testnet 0xf5ea2b37..).
+NEXT: attestation bonus — enclave also signs vol snapshots, verified on-chain (best-of-both: trustless on-chain + hardware-attested).
+
+## VOL INDEX ATTESTATION BONUS — DONE (verification live on-chain)
+floe_nav V2: 0xfd5a822ad199dd4d07d7fba532b37f2aef5843178af42ed193132554923fda73 (orig pkg 0xc9bae173..).
+Added verify_vol_attested<T>(enclave, vol_bps, spot, oracle_id, timestamp_ms, signature) + VolPayload.
+Same registered Enclave (0x1606c150..) that secures NAV now ALSO secures vol snapshots, with a DISTINCT
+intent (VOL_INTENT=2 vs NAV_INTENT=1) — a NAV signature cannot be replayed as a vol attestation.
+PROVEN: test_vol_payload_serde passes (VolPayload IntentMessage = same stable 57-byte shape). The signature
+VERIFICATION mechanism itself was proven end-to-end live for NAV (verify_nav: VALID accepted tx 4MPDLAcB,
+TAMPERED rejected) — the vol path is the identical enclave + enclave::verify_signature, differing only in the
+intent byte + field interpretation (unit-tested). HONEST STATUS: verification deployed + live + BCS-contract
+unit-tested; rests on the NAV end-to-end hardware proof rather than a separate live enclave-signed-vol tx.
+BEST OF BOTH: vol_now (trustless on-chain compute, floe_vol 0xc3400957) OR verify_vol_attested (hardware-attested).
+One attested enclave -> multiple verified feeds. This is the architectural payoff of the moat.

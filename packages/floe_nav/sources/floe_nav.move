@@ -23,8 +23,17 @@ public struct NavPayload has copy, drop {
     plp_price: u64,
 }
 
+/// The VOL payload the enclave signs (same 57-byte BCS shape as NavPayload:
+/// address + u64 + u64). One attested enclave secures multiple verified feeds.
+public struct VolPayload has copy, drop {
+    oracle_id: address,
+    vol_bps: u64,
+    spot: u64,
+}
 /// Intent byte (domain separator) for NAV attestations.
 const NAV_INTENT: u8 = 1;
+/// Intent byte for VOL attestations (distinct domain separator).
+const VOL_INTENT: u8 = 2;
 
 const EBadEnclaveSig: u64 = 0;
 
@@ -62,4 +71,29 @@ public fun verify_nav<T>(
 /// Helper for constructing the payload (used by tests + off-chain to match BCS).
 public fun new_payload(vault_id: address, nav: u64, plp_price: u64): NavPayload {
     NavPayload { vault_id, nav, plp_price }
+}
+
+/// Verify an enclave-signed VOLATILITY snapshot. Same registered enclave, distinct
+/// intent (VOL_INTENT=2) so a NAV signature can never be replayed as a vol signature.
+/// Returns the verified (vol_bps, spot). This is the attested counterpart to
+/// floe_vol_index::vol_now (the trustless on-chain compute) — best of both:
+/// any protocol can either compute vol on-chain OR consume a hardware-attested snapshot.
+public fun verify_vol_attested<T>(
+    enclave: &Enclave<T>,
+    vol_bps: u64,
+    spot: u64,
+    oracle_id: address,
+    timestamp_ms: u64,
+    signature: vector<u8>,
+): (u64, u64) {
+    let payload = VolPayload { oracle_id, vol_bps, spot };
+    let ok = enclave::verify_signature<T, VolPayload>(
+        enclave, VOL_INTENT, timestamp_ms, payload, &signature,
+    );
+    assert!(ok, EBadEnclaveSig);
+    (vol_bps, spot)
+}
+
+public fun new_vol_payload(oracle_id: address, vol_bps: u64, spot: u64): VolPayload {
+    VolPayload { oracle_id, vol_bps, spot }
 }
