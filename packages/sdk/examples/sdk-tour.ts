@@ -5,7 +5,7 @@
  * Proves the SDK surfaces the shipped capabilities: vault NAV, the registry,
  * the on-chain vol index, and the Nautilus attestation moat — all live.
  */
-import { FloeClient, FloeVault, Registry, Vol, Attestation, DeepBookModule } from '../src/index.ts';
+import { FloeClient, FloeVault, Registry, Vol, Attestation, Agent, DeepBookModule } from '../src/index.ts';
 
 const REF_VAULT = '0xea33fe41c7512a1a36be417b0ce400ada0db0d9fe54f2ade75662aaef987de2e';
 
@@ -40,4 +40,9 @@ console.log('  Enclave', info.enclaveId.slice(0, 10) + '…', '| live on-chain:'
 console.log('  PCR0', info.pcr0.slice(0, 24) + '…');
 console.log('  verifyNav / verifyVolAttested available (require signer + enclave signature)');
 
-console.log('\n✓ SDK surfaces vault NAV, venues, on-chain vol, and the attestation moat — all live.');
+// 5) Agent layer
+const agents = await Agent.listAgents(floe);
+console.log('\nAGENTS  authorized:', agents.length,
+  agents.length ? '(' + agents.map(a => (a.active ? 'active' : 'revoked')).join(', ') + ')' : '(none yet)');
+
+console.log('\n✓ SDK surfaces vault NAV, venues, on-chain vol, attestation, and agent authority — all live.');

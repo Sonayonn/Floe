@@ -3,7 +3,7 @@
 export const FLOE_ADDRESSES = {
   testnet: {
     // Core vault layer (factory, registry, treasury, agents)
-    package:       '0x513dcd38a144c3f7fdfbee77fce6b1e3289bed7d93ed71bd619ee107b8231ac2',
+    package:       '0x96697a09e6e526fd85ef252432019a61754869cca1632cbc49b1c01fdcdad93b', // V6 (agent layer)
     module:        'floe',
     registry:      '0x3462badecc7b4274b222f3b2bf0f0ddab572c294336ec8e7c7d62f42bf1a2f45',
     treasury:      '0x756dbb6350b61e838afcb81fd1c53975af7b51756f6cc0f6d1981b7df8b2639e',

@@ -11,6 +11,7 @@ import * as feesCfg from './config/fees.ts';
 import * as shareTemplate from './share/template.ts';
 import * as vol from './vol/index.ts';
 import * as attestation from './attestation/index.ts';
+import * as agent from './agent/index.ts';
 
 /** Vault reads + (later) actions. */
 export const FloeVault = { ...vaultRead, ...vaultDeploy };
@@ -26,12 +27,15 @@ export const Fees = { ...feesCfg };
 export const Vol = { ...vol };
 /** Verifiable NAV + vol — the Nautilus hardware-attestation moat. */
 export const Attestation = { ...attestation };
+/** Attenuated, revocable agent authority over a vault. */
+export const Agent = { ...agent };
 
 export type { VaultState } from './vault/read.ts';
 export type { VaultInfo } from './registry.ts';
 export type { ProtocolRevenue } from './treasury.ts';
 export type { VolSnapshot } from './vol/index.ts';
 export type { EnclaveInfo } from './attestation/index.ts';
+export type { AgentEntry, AuthorizeAgentOpts } from './agent/index.ts';
 
 // Venue layer (the multi-venue spine)
 export type { VenueModule, VenueValuation } from './venues/types.ts';

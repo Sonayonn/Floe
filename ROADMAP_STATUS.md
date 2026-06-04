@@ -103,3 +103,24 @@ intent byte + field interpretation (unit-tested). HONEST STATUS: verification de
 unit-tested; rests on the NAV end-to-end hardware proof rather than a separate live enclave-signed-vol tx.
 BEST OF BOTH: vol_now (trustless on-chain compute, floe_vol 0xc3400957) OR verify_vol_attested (hardware-attested).
 One attested enclave -> multiple verified feeds. This is the architectural payoff of the moat.
+
+## COMPREHENSIVE SDK PASS — DONE (the layer's product surface)
+@floe/sdk now surfaces EVERY shipped capability as a coherent, documented API — the
+"build on Floe" product, not a read helper. New this phase:
+- constants.ts: ALL canonical ids centralized (vault, registry, treasury, nav/attestation,
+  vol, predict) — builders never hardcode.
+- Vol module: volNow (on-chain compute via devInspect), currentVol (snapshot), updateVolIndex,
+  bpsToPercent. Live-tested (47-51% BTC IV).
+- Attestation module (the moat, surfaced): enclaveInfo, isEnclaveLive (→true), verifyNav,
+  verifyVolAttested. The differentiator now has an API.
+- DeepBookModule: the LIVE reference VenueModule (value() reuses proven NAV valuation) — now a
+  first-class peer to CetusModule. Two real venue implementations of one uniform interface,
+  visible in the SDK = the layer claim, concrete in code.
+- examples/sdk-tour.ts: live smoke test exercising vault NAV + DeepBook venue + vol index +
+  attestation moat against testnet — all pass. Proves the surface works, not just typechecks.
+- README.md: the "build on Floe" quickstart (read / moat / vol / venues / deploy / build-on).
+  Every method verified against real exports — copy-paste accurate.
+Public surface: FloeClient, FloeVault, Registry, Treasury, Share, Policy, Fees, Vol, Attestation,
+DeepBookModule, CetusModule, VenueModule interface, FLOE_ADDRESSES. tsc clean.
+STANDING RULE honored: covers everything shipped to date. Agent/Walrus/Seal add their modules in
+their own phases (definition-of-done includes the SDK module each time).

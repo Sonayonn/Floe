@@ -187,8 +187,6 @@ public struct DepositEvent has copy, drop { vault_id: ID, who: address, amount: 
 public struct WithdrawEvent has copy, drop { vault_id: ID, who: address, shares: u64, payout: u64 }
 public struct FeeAccrued has copy, drop { vault_id: ID, curator_shares: u64, protocol_shares: u64 }
 public struct VaultDeployed has copy, drop { vault_id: ID, curator: address, name: vector<u8> }
-public struct AgentAuthorized has copy, drop { vault_id: ID, agent: address, agent_cap_id: ID, expiry_ms: u64, max_cycles: u64 }
-public struct AgentRevoked has copy, drop { vault_id: ID, agent_cap_id: ID }
 
 // ─── Init: create the three shared objects once at publish ───────────────────
 fun init(ctx: &mut TxContext) {
@@ -310,121 +308,9 @@ fun assert_owner<Q, S>(vault: &Vault<Q, S>, cap: &OwnerCap) {
 fun assert_curator_cap<Q, S>(vault: &Vault<Q, S>, cap: &CuratorCap) {
     assert!(cap.vault_id == object::id(vault), EWrongVault);
 }
-
-// ─── Agent authority (attenuated, attested, revocable) ───────────────────────
-/// Curator authorizes an agent to operate THIS vault under an attenuated, bounded
-/// mandate. Mints an ExecCap whose authority equals the rebalancer's, NARROWED by
-/// the Mandate (expiry, max_cycles, optional tighter policy, revocable). The agent
-/// holds a real capability object — not a key — attributed to the issuing curator.
-public fun authorize_agent<Q, S>(
-    vault: &Vault<Q, S>,
-    cap: &CuratorCap,
-    registry: &mut AgentRegistry,
-    agent: address,
-    expiry_ms: u64,
-    max_cycles: u64,
-    mandate_policy: Option<PolicyConfig>,
-    ctx: &mut TxContext,
-) {
-    assert_curator_cap(vault, cap);
-    let vault_id = object::id(vault);
-    let exec_cap = ExecCap {
-        id: object::new(ctx),
-        vault_id,
-        mandate: option::some(Mandate {
-            agent_id: vault_id,                 // bound to this vault
-            authorized_by: ctx.sender(),
-            expiry_ms,
-            max_cycles,
-            cycles_used: 0,
-            revoked: false,
-            mandate_policy,
-        }),
-    };
-    let agent_cap_id = object::id(&exec_cap);
-    registry.agents.push_back(AgentInfo {
-        agent_id: agent_cap_id,
-        vault_id,
-        authorized_by: ctx.sender(),
-        active: true,
-    });
-    event::emit(AgentAuthorized { vault_id, agent, agent_cap_id, expiry_ms, max_cycles });
-    transfer::public_transfer(exec_cap, agent);
-}
-
-/// Curator revokes an agent's mandate by its ExecCap id. Flips the registry entry
-/// inactive; the agent's next action fails the kill-switch in assert_exec. (The
-/// ExecCap object persists in the agent's custody but is now inert.)
-public fun revoke_agent<Q, S>(
-    vault: &mut Vault<Q, S>,
-    cap: &CuratorCap,
-    registry: &mut AgentRegistry,
-    agent_cap_id: ID,
-) {
-    assert_curator_cap(vault, cap);
-    let vault_id = object::id(vault);
-    record_revoked(vault, agent_cap_id);
-    let n = registry.agents.length();
-    let mut i = 0;
-    while (i < n) {
-        let info = &mut registry.agents[i];
-        if (info.agent_cap_id_eq(agent_cap_id) && info.vault_id == vault_id) {
-            info.active = false;
-        };
-        i = i + 1;
-    };
-    event::emit(AgentRevoked { vault_id, agent_cap_id });
-}
-
-/// helper: AgentInfo id match (kept tiny for the loop above).
-fun agent_cap_id_eq(info: &AgentInfo, id: ID): bool { info.agent_id == id }
-/// Dynamic-field key holding the set (vector) of revoked agent ExecCap ids.
-/// Stored on the vault UID (upgrade-safe — no struct change), mirroring how custody
-/// objects attach as dynamic fields.
-public struct RevokedCaps has copy, drop, store {}
-
-fun revoked_list<Q, S>(vault: &Vault<Q, S>): vector<ID> {
-    if (df::exists_(&vault.id, RevokedCaps {})) {
-        *df::borrow<RevokedCaps, vector<ID>>(&vault.id, RevokedCaps {})
-    } else { vector[] }
-}
-
-fun record_revoked<Q, S>(vault: &mut Vault<Q, S>, cap_id: ID) {
-    if (!df::exists_(&vault.id, RevokedCaps {})) {
-        df::add(&mut vault.id, RevokedCaps {}, vector<ID>[]);
-    };
-    let list = df::borrow_mut<RevokedCaps, vector<ID>>(&mut vault.id, RevokedCaps {});
-    if (!list.contains(&cap_id)) { list.push_back(cap_id); };
-}
-
-fun is_revoked<Q, S>(vault: &Vault<Q, S>, cap_id: ID): bool {
-    df::exists_(&vault.id, RevokedCaps {}) &&
-        df::borrow<RevokedCaps, vector<ID>>(&vault.id, RevokedCaps {}).contains(&cap_id)
-}
-
 fun assert_exec<Q, S>(vault: &Vault<Q, S>, cap: &ExecCap) {
     assert!(cap.vault_id == object::id(vault), EWrongVault);
-    // Kill-switch: the curator can revoke an agent's ExecCap by id; once revoked the
-    // vault rejects it on EVERY action. Enforced vault-side (the curator reaches the
-    // vault; the agent's cap object stays in the agent's custody but is now inert).
-    if (cap.mandate.is_some()) {
-        let m = cap.mandate.borrow();
-        assert!(!m.revoked, EMandateRevoked);
-        assert!(!is_revoked(vault, object::id(cap)), EMandateRevoked);
-    };
-}
-
-/// Per-cycle mandate re-evaluation (expiry + cycle budget). Agent rebalance entry
-/// points call this once per cycle with the clock; it enforces the time + count
-/// bounds and consumes one cycle. Full (mandate=None) ExecCaps are unbounded.
-public fun consume_mandate_cycle(cap: &mut ExecCap, clock: &Clock) {
-    if (cap.mandate.is_some()) {
-        let m = cap.mandate.borrow_mut();
-        assert!(!m.revoked, EMandateRevoked);
-        assert!(clock.timestamp_ms() <= m.expiry_ms, EMandateExpired);
-        assert!(m.cycles_used < m.max_cycles, EMandateCyclesExhausted);
-        m.cycles_used = m.cycles_used + 1;
-    };
+    // v3.1: if mandate present, assert_mandate_live(cap) here.
 }
 fun assert_not_paused<Q, S>(vault: &Vault<Q, S>) {
     assert!(!vault.paused, EVaultPaused);
@@ -987,13 +873,6 @@ public fun test_inject_gain<Q, S>(vault: &mut Vault<Q, S>, coin_in: Coin<Q>) {
 }
 
 #[test_only]
-public fun test_agent_count(registry: &AgentRegistry): u64 { registry.agents.length() }
-
-#[test_only]
-public fun test_exec_cap_id(cap: &ExecCap): ID { object::id(cap) }
-
-#[test_only]
 public fun test_init_registry(ctx: &mut TxContext) {
     transfer::share_object(VaultRegistry { id: object::new(ctx), vaults: vector[], protocol_treasury: @0xFEE });
-    transfer::share_object(AgentRegistry { id: object::new(ctx), agents: vector[] });
 }

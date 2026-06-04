@@ -5,7 +5,7 @@ use sui::test_scenario::{Self as ts, next_tx, ctx};
 use std::unit_test::destroy;
 use sui::coin::{Self, Coin};
 use sui::clock;
-use floe::floe::{Self as vault, Vault, OwnerCap, CuratorCap, VaultRegistry, TEST_SHARE};
+use floe::floe::{Self as vault, Vault, OwnerCap, CuratorCap, VaultRegistry, AgentRegistry, ExecCap, TEST_SHARE};
 
 public struct TUSD has drop {}
 
@@ -179,6 +179,84 @@ fun test_protocol_fee_split() {
         assert!(total_minted >= 18_100_000 && total_minted <= 18_200_000, 0);
         destroy(shares);
         clock::destroy_for_testing(clk);
+        ts::return_shared(v);
+    };
+    destroy(op); destroy(cur);
+    ts::end(sc);
+}
+
+
+// ─── Agent authority (attenuated, revocable) ─────────────────────────────────
+const AGENT: address = @0xC0FFEE;
+
+#[test]
+fun test_agent_authorize_and_act() {
+    let mut sc = ts::begin(ADMIN);
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 0, &mut sc);
+    // curator authorizes an agent under a bounded mandate
+    next_tx(&mut sc, CURATOR);
+    {
+        let v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        let mut reg = ts::take_shared<AgentRegistry>(&sc);
+        vault::authorize_agent(&v, &cur, &mut reg, AGENT, 9_999_999_999_999, 10, option::none(), ctx(&mut sc));
+        assert!(vault::test_agent_count(&reg) == 1, 0);
+        ts::return_shared(v);
+        ts::return_shared(reg);
+    };
+    // the agent now holds an attenuated ExecCap; it WORKS on a gated fn while live
+    next_tx(&mut sc, AGENT);
+    {
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        let ecap = ts::take_from_sender<ExecCap>(&sc);
+        vault::record_walrus_blob(&mut v, &ecap, b"blob-while-live");
+        ts::return_to_sender(&sc, ecap);
+        ts::return_shared(v);
+    };
+    destroy(op); destroy(cur);
+    ts::end(sc);
+}
+
+#[test]
+#[expected_failure(abort_code = vault::EMandateRevoked)]
+fun test_agent_revoke_killswitch() {
+    let mut sc = ts::begin(ADMIN);
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 0, &mut sc);
+    next_tx(&mut sc, CURATOR);
+    let agent_cap_id;
+    {
+        let v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        let mut reg = ts::take_shared<AgentRegistry>(&sc);
+        vault::authorize_agent(&v, &cur, &mut reg, AGENT, 9_999_999_999_999, 10, option::none(), ctx(&mut sc));
+        ts::return_shared(v);
+        ts::return_shared(reg);
+    };
+    // capture the agent's ExecCap id
+    next_tx(&mut sc, AGENT);
+    {
+        let ecap = ts::take_from_sender<ExecCap>(&sc);
+        agent_cap_id = vault::test_exec_cap_id(&ecap);
+        ts::return_to_sender(&sc, ecap);
+    };
+    // curator revokes by id
+    next_tx(&mut sc, CURATOR);
+    {
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        let mut reg = ts::take_shared<AgentRegistry>(&sc);
+        vault::revoke_agent(&mut v, &cur, &mut reg, agent_cap_id);
+        ts::return_shared(v);
+        ts::return_shared(reg);
+    };
+    // agent's next action MUST abort EMandateRevoked (the kill-switch)
+    next_tx(&mut sc, AGENT);
+    {
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        let ecap = ts::take_from_sender<ExecCap>(&sc);
+        vault::record_walrus_blob(&mut v, &ecap, b"blob-after-revoke"); // aborts here
+        ts::return_to_sender(&sc, ecap);
         ts::return_shared(v);
     };
     destroy(op); destroy(cur);
