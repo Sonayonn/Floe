@@ -124,3 +124,17 @@ Public surface: FloeClient, FloeVault, Registry, Treasury, Share, Policy, Fees, 
 DeepBookModule, CetusModule, VenueModule interface, FLOE_ADDRESSES. tsc clean.
 STANDING RULE honored: covers everything shipped to date. Agent/Walrus/Seal add their modules in
 their own phases (definition-of-done includes the SDK module each time).
+
+## AGENT LAYER (3e) — DONE (contract + SDK, this phase)
+floe V6: 0x96697a09e6e526fd85ef252432019a61754869cca1632cbc49b1c01fdcdad93b
+Contract: authorize_agent (CuratorCap-gated; mints an ATTENUATED ExecCap with a Mandate —
+expiry, max_cycles, optional tighter policy — to the agent, records AgentInfo), revoke_agent
+(instant kill-switch: records the cap id in a dynamic field; assert_exec rejects it on EVERY
+action thereafter), consume_mandate_cycle (per-cycle expiry + budget enforcement). Revocation
+stored as a DYNAMIC FIELD (RevokedCaps) — upgrade-safe (struct add broke compat; df is the fix,
+matching the custody pattern). PROVEN: test_agent_authorize_and_act (attenuated cap works while
+live) + test_agent_revoke_killswitch (#[expected_failure EMandateRevoked] — kill-switch fires). 7/7 tests pass.
+SDK (same phase, per standing rule): Agent module — authorizeAgent, revokeAgent, listAgents
+(reads AgentRegistry), consumeMandateCycle, resolveVaultTypes. Wired into index + sdk-tour.
+The agent-authority control plane (attenuated/attested/revocable) the industry bolts onto OAuth —
+native on Sui because a capability is a first-class object. Positioning pillar, now real + tested.

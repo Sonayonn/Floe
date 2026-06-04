@@ -12,6 +12,7 @@ import * as shareTemplate from './share/template.ts';
 import * as vol from './vol/index.ts';
 import * as attestation from './attestation/index.ts';
 import * as agent from './agent/index.ts';
+import * as walrus from './walrus/index.ts';
 
 /** Vault reads + (later) actions. */
 export const FloeVault = { ...vaultRead, ...vaultDeploy };
@@ -29,6 +30,8 @@ export const Vol = { ...vol };
 export const Attestation = { ...attestation };
 /** Attenuated, revocable agent authority over a vault. */
 export const Agent = { ...agent };
+/** Tamper-evident audit trail — NAV/rebalance snapshots on Walrus, indexed on-chain. */
+export const Walrus = { ...walrus };
 
 export type { VaultState } from './vault/read.ts';
 export type { VaultInfo } from './registry.ts';
@@ -36,6 +39,7 @@ export type { ProtocolRevenue } from './treasury.ts';
 export type { VolSnapshot } from './vol/index.ts';
 export type { EnclaveInfo } from './attestation/index.ts';
 export type { AgentEntry, AuthorizeAgentOpts } from './agent/index.ts';
+export type { FloeSnapshot, StoredBlob } from './walrus/index.ts';
 
 // Venue layer (the multi-venue spine)
 export type { VenueModule, VenueValuation } from './venues/types.ts';
