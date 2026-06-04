@@ -64,3 +64,17 @@ floe_nav pkg: 0xc9bae1737b1744108491f6c4d7c87128520d6b61151d9e3bc23c262cbc0026e0
   enclave primitive pkg:          0x8ecf22e78c90c3e32833d76d82415d7e4227ea370bec4efdad4c4830cbda9e49
 Integrates Mysten enclave::verify_signature. BCS payload = IntentMessage{intent(1)+ts(8)+vault_id(32)+nav(8)+plp_price(8)} = 57 bytes (unit-tested).
 MOAT: Tier 1 (live ed25519 NAV attestation) + Stage A (Nautilus primitive deployed). Stage B (AWS Nitro enclave registration) IN PROGRESS.
+
+## NAUTILUS TIER 3 — DONE (FULL hardware attestation, live on testnet)
+The complete verifiable-NAV chain is proven end-to-end on testnet:
+- Reproducible StageX EIF build -> identical PCRs on WSL + EC2 (deterministic):
+  PCR0/1 dfe6ad9df7ff5f5646ac5c3cf5da788b7b183e6ce607db41f280ec31d53626ac4bd2cf0d146d05cbee91b7ecc98d7a5b
+  PCR2   21b9efbc184807662e966d34f390821309eeac6802309798826296bf3e8bec7c10edb30948c90ba67310f7b964fc500a
+- Ran the Floe NAV signer in a real AWS Nitro enclave; got the attestation document.
+- load_nitro_attestation verified AWS's Nitro signature on-chain; register_enclave minted a LIVE Enclave:
+  Enclave object: 0x1606c150ece04642d8ae50e944377d9217c80f6bd08433dccd1b665838184584 (shared)
+  update_pcrs tx GRtUGoPf.., register_enclave tx ApLTpWXZ..
+- Enclave-signed NAV VERIFIED on-chain via floe_nav::verify_nav -> enclave::verify_signature:
+  [VALID] accepted (tx 4MPDLAcB..); [TAMPERED] rejected (MoveAbort).
+MOAT COMPLETE: Tier 1 (ed25519 NAV attestation) + Stage A (Nautilus primitive integrated) +
+Tier 3 (full AWS Nitro hardware attestation, on-chain verified). Floe NAV is hardware-attested + on-chain-verifiable.
