@@ -21,7 +21,7 @@ export const FLOE_ADDRESSES = {
       enclavePackage:  '0x8ecf22e78c90c3e32833d76d82415d7e4227ea370bec4efdad4c4830cbda9e49',
       cap:             '0xe84af0541528abaa11123a2b5a9c9cbee0c4ac18104c4ca3f1a6b3050cb72c9f',
       enclaveConfig:   '0x34e27a1bb7034cc6734c59b631e2362ef5515cd9d139871d8653c584825b7402',
-      enclave:         '0x1606c150ece04642d8ae50e944377d9217c80f6bd08433dccd1b665838184584',
+      enclave:         '0x3d2ba31849f5f2c916b812a987404554aa819e56e8da5939089327375d0cb496', // new (489fdb1b enclave)
       otwType:         '0xc9bae1737b1744108491f6c4d7c87128520d6b61151d9e3bc23c262cbc0026e0::floe_nav::FLOE_NAV',
       navIntent: 1,
       volIntent: 2,

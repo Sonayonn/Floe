@@ -6,7 +6,7 @@ import { fromHex } from '@mysten/sui/utils';
 import { readFileSync } from 'fs';
 
 const APP_PKG = '0xc9bae1737b1744108491f6c4d7c87128520d6b61151d9e3bc23c262cbc0026e0';
-const ENCLAVE_OBJ = '0x1606c150ece04642d8ae50e944377d9217c80f6bd08433dccd1b665838184584';
+const ENCLAVE_OBJ = '0x3d2ba31849f5f2c916b812a987404554aa819e56e8da5939089327375d0cb496';
 const OTW = `${APP_PKG}::floe_nav::FLOE_NAV`;
 
 const j = JSON.parse(readFileSync('../enclave/signed_nav.json', 'utf8'));

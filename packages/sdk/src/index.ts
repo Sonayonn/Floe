@@ -14,6 +14,7 @@ import * as vol from './vol/index.ts';
 import * as attestation from './attestation/index.ts';
 import * as agent from './agent/index.ts';
 import * as walrus from './walrus/index.ts';
+import * as trackRecord from './track-record/index.ts';
 import * as seal from './seal/index.ts';
 
 /** Vault reads + (later) actions. */
@@ -34,6 +35,8 @@ export const Attestation = { ...attestation };
 export const Agent = { ...agent };
 /** Tamper-evident audit trail — NAV/rebalance snapshots on Walrus, indexed on-chain. */
 export const Walrus = { ...walrus };
+/** Verifiable performance history — APR/drawdown from attested, tamper-evident snapshots. */
+export const TrackRecord = { ...trackRecord };
 /** Strategy-parameter privacy — Seal-encrypted config, capability-gated decryption. */
 export const Seal = { ...seal };
 
@@ -44,6 +47,7 @@ export type { VolSnapshot } from './vol/index.ts';
 export type { EnclaveInfo } from './attestation/index.ts';
 export type { AgentEntry, AuthorizeAgentOpts } from './agent/index.ts';
 export type { FloeSnapshot, StoredBlob } from './walrus/index.ts';
+export type { VerifiedPoint, TrackRecord as TrackRecordData } from './track-record/index.ts';
 
 // Venue layer (the multi-venue spine)
 export type { VenueModule, VenueValuation } from './venues/types.ts';

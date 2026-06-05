@@ -1,0 +1,49 @@
+[
+  {
+    "step": "1_plp_heartbeat",
+    "enclave_pubkey": "69f23b336bf6fecc943491fda61f11d774d7b85d1ede25935ff8d73734abbac1",
+    "pcr0": "489fdb1bc0d496fdf94ea06adb1f970a3a429cbcc31375d3af552b155bbcda81326833fec25a08ae058ce8e50caf5fa3",
+    "vault": "0xea33fe41c7512a1a36be417b0ce400ada0db0d9fe54f2ade75662aaef987de2e",
+    "update_nav_attested_tx": "5R73X6Da3eb4nyarV1cg7y8X4MmuihgGpo7uE3arUaSj",
+    "plp_price": 1002000,
+    "timestamp_ms": 1780669791112,
+    "result": "fresh=true attested=true; badge degraded-divergent (correct: unsettled marks); pctCertain 28%"
+  },
+  {
+    "step": "2_circuit_breaker_demo",
+    "act1_deposit_blocked": "EDepositUnsafe (MoveAbort) \u2014 breaker refused mint against unverifiable NAV",
+    "act1_withdraw_at_floor_tx": "2NQCQRfX6h8YLSvKJyTsy17ppdM4FJvGV1qZGmEF1foi",
+    "act1_navguard_event": {
+      "full_nav": 7504008,
+      "lower_bound": 2104008,
+      "reason": 2
+    },
+    "act2_settle_tx": [
+      "D1K9VcEkwz25WCaL9Z1mMotAGWrjPETfJBhRvkqNDPns",
+      "mye7hKag6GQ5xYxHMnZgA1g4ewnAbFfaUDf1nTbd6H8"
+    ],
+    "act2_deposit_permitted_tx": "5w6r9yDBxqsGzj6x3iFC8vH7aMPYW6vAXd3UnttKqfxv",
+    "result": "breaker PROTECTS when divergent (deposit blocked, withdraw at floor), PERMITS after settlement"
+  },
+  {
+    "step": "3_attested_track_record",
+    "snapshots_signed": 3,
+    "blob_navs": [
+      7510000,
+      7600000,
+      7700000
+    ],
+    "attested_era_since_ms": 1780672000000,
+    "verifyTrackRecord_result": "6 points, all verified on-chain (verify_nav), 100% attested coverage, avg pctCertain 100%",
+    "return_pct": 2.53,
+    "apr": "n/a \u2014 window < 1 day (annualization guard; honest, not absurd)",
+    "note": "real enclave signatures re-verified on-chain; APR guard prevents degenerate annualization"
+  },
+  {
+    "step": "4_verify_nav_tier3_live",
+    "enclave_object": "0x3d2ba31849f5f2c916b812a987404554aa819e56e8da5939089327375d0cb496",
+    "valid_accepted_tx": "ExaVWcAAgWgg2dM2erJ32kHEsm6wUYh61AyJrenkLQ9o",
+    "tampered_result": "REJECTED (MoveAbort EBadEnclaveSig)",
+    "result": "Tier-3 floe_nav primitive proven live on new enclave: valid sig accepted, tampered rejected"
+  }
+]

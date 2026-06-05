@@ -61,6 +61,59 @@ pub async fn process_data(
     )))
 }
 
+
+// ─── Tier-1 heartbeat: sign the BARE message floe-core's update_nav_attested expects ───
+// On-chain it verifies ed25519 over BCS(vault_id) || BCS(plp_price) || BCS(timestamp_ms)
+// — NO intent envelope. So we sign the raw concatenation directly with the enclave key.
+// The enclave's pubkey becomes the vault's registered attester => NAV heartbeat is hardware-attested.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HeartbeatRequest {
+    pub vault_id: [u8; 32],
+    pub plp_price: u64,
+    pub plp_held: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HeartbeatResponse {
+    pub vault_id: [u8; 32],
+    pub plp_price: u64,
+    pub plp_held: u64,
+    pub timestamp_ms: u64,
+    pub signature: String,   // hex, plain ed25519 over the bare message
+    pub pubkey: String,      // hex enclave pubkey -> register as attester
+}
+
+pub async fn sign_heartbeat(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ProcessDataRequest<HeartbeatRequest>>,
+) -> Result<Json<HeartbeatResponse>, EnclaveError> {
+    use fastcrypto::encoding::{Encoding, Hex};
+    use fastcrypto::traits::{Signer, KeyPair};
+    let r = request.payload;
+    if r.plp_price == 0 {
+        return Err(EnclaveError::GenericError("plp_price must be non-zero".to_string()));
+    }
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| EnclaveError::GenericError(format!("clock: {e}")))?
+        .as_millis() as u64;
+    // Build the EXACT bytes floe-core reconstructs: BCS(vault_id) || BCS(plp_price) || BCS(timestamp_ms).
+    // vault_id is a Sui address (32 raw bytes); bcs of [u8;32] = the 32 bytes verbatim.
+    let mut msg = bcs::to_bytes(&r.vault_id).expect("bcs vault_id");
+    msg.extend(bcs::to_bytes(&r.plp_price).expect("bcs plp_price"));
+    msg.extend(bcs::to_bytes(&timestamp_ms).expect("bcs timestamp"));
+    let sig = state.eph_kp.sign(&msg);
+    let pubkey = state.eph_kp.public();
+    Ok(Json(HeartbeatResponse {
+        vault_id: r.vault_id,
+        plp_price: r.plp_price,
+        plp_held: r.plp_held,
+        timestamp_ms,
+        signature: Hex::encode(sig),
+        pubkey: Hex::encode(pubkey.as_ref()),
+    }))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -82,4 +135,21 @@ mod test {
         // intent byte is 1 (Nav)
         assert_eq!(bytes[0], 1u8);
     }
+
+    #[test]
+    fn test_heartbeat_msg_layout() {
+        // The Tier-1 heartbeat message MUST be BCS(vault_id)||BCS(plp_price)||BCS(timestamp_ms)
+        // = 32 + 8 + 8 = 48 bytes, NO intent envelope. Must match floe::update_nav_attested's
+        // msg reconstruction byte-for-byte or ed25519_verify fails on-chain.
+        let vault_id = [7u8; 32];
+        let plp_price: u64 = 1002000;
+        let timestamp_ms: u64 = 1744038900000;
+        let mut msg = bcs::to_bytes(&vault_id).unwrap();
+        msg.extend(bcs::to_bytes(&plp_price).unwrap());
+        msg.extend(bcs::to_bytes(&timestamp_ms).unwrap());
+        assert_eq!(msg.len(), 48, "heartbeat msg must be 48 bytes (32+8+8), no intent byte");
+        // first 32 bytes are the raw vault_id (no length prefix for [u8;32])
+        assert_eq!(&msg[0..32], &vault_id);
+    }
+
 }

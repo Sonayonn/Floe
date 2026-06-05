@@ -9,8 +9,8 @@ const CONFIG = '0x34e27a1bb7034cc6734c59b631e2362ef5515cd9d139871d8653c584825b74
 const CAP = '0xe84af0541528abaa11123a2b5a9c9cbee0c4ac18104c4ca3f1a6b3050cb72c9f';
 const OTW = '0xc9bae1737b1744108491f6c4d7c87128520d6b61151d9e3bc23c262cbc0026e0::floe_nav::FLOE_NAV';
 
-const PCR0 = 'dfe6ad9df7ff5f5646ac5c3cf5da788b7b183e6ce607db41f280ec31d53626ac4bd2cf0d146d05cbee91b7ecc98d7a5b';
-const PCR1 = 'dfe6ad9df7ff5f5646ac5c3cf5da788b7b183e6ce607db41f280ec31d53626ac4bd2cf0d146d05cbee91b7ecc98d7a5b';
+const PCR0 = '489fdb1bc0d496fdf94ea06adb1f970a3a429cbcc31375d3af552b155bbcda81326833fec25a08ae058ce8e50caf5fa3';
+const PCR1 = '489fdb1bc0d496fdf94ea06adb1f970a3a429cbcc31375d3af552b155bbcda81326833fec25a08ae058ce8e50caf5fa3';
 const PCR2 = '21b9efbc184807662e966d34f390821309eeac6802309798826296bf3e8bec7c10edb30948c90ba67310f7b964fc500a';
 
 const sui = new SuiClient({ url: getFullnodeUrl('testnet') });

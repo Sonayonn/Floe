@@ -205,3 +205,22 @@ THE METRIC: pctCertain = '% of NAV that is cryptographically provable right now.
 show it (no certain tier, no attestation). Climbs toward 100% as positions settle + heartbeat runs.
 Strengthens the circuit breaker: settled positions shrink the 'degraded' gap.
 VERSION: FLOE_VERSION 0.9.0 (SDK + package.json). CONTRACT_VERSION 8_000 now live on-chain (rode this publish).
+
+## #1 ATTESTATION PRIMITIVE EXTRACTION — DONE (the reframe: moat -> reusable primitive)
+floe_nav V3: 0x61068e2d7c4648bd2f5d13f5474f83f35ff9e20da3d155806b30b7c2e15b16a9
+The verifiable-NAV moat is now framed + proven as a REUSABLE Sui primitive, not a vault feature.
+- Module header reframed: 'Floe Verifiable Valuation — a reusable Sui attestation primitive.'
+  Register an enclave once; attest any typed value; verify on-chain with intent-separation.
+- THIRD reference consumer (proves generality, NON-Floe use case): CollateralPayload{asset_id,
+  value, ltv_bps} + COLLATERAL_INTENT=3 + verify_collateral_attested<T>. Same 57-byte BCS shape;
+  distinct intent prevents cross-payload replay. Represents 'a lending market valuing illiquid
+  collateral' — nothing to do with Floe's vault. test_collateral_payload_serde passes (3/3).
+- README.md: 'Verifiable Valuation' primitive doc — register-once flow, intent-separation security,
+  three reference consumers (NAV/vol/collateral), verify API, add-your-own-payload guide. The
+  'others build on this' artifact. Peer to Walrus (data) / Nautilus (compute) = verifiable valuation.
+- SDK Attestation module: verifyCollateral added (mirrors verifyNav/verifyVolAttested); header
+  reframed to the primitive framing. nav.package -> V3, collateralIntent=3 in constants.
+POSITIONING: 'Floe's verifiable-NAV moat is itself a reusable primitive. Proven by attesting three
+value types — vault NAV, vol index, lending collateral — through one hardware-attested path. Floe is
+the first consumer of infrastructure others build on.' Answers 'what if a clone copies the moat':
+the moat is now a documented primitive, and the positioning is primitive-tier (Walrus/Nautilus peer).

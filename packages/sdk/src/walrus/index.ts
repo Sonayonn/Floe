@@ -27,6 +27,12 @@ export interface FloeSnapshot {
   attested?: boolean;
   timestampMs: number;
   txDigest?: string;      // the rebalance tx this snapshot accompanies
+  // ── attested track record (the verifiable-performance proof) ──
+  settledTotal?: string;        // certain/resolved value at snapshot time
+  unsettledMarks?: string;      // soft mark tier at snapshot time
+  pctCertain?: number;          // % of NAV provable at snapshot time
+  navSignatureHex?: string;     // enclave signature over (nav, plpPrice, vaultId, ts) — the proof
+  plpPriceAtSnapshot?: string;  // the attested plp_price (for re-verification)
 }
 
 export interface StoredBlob {
