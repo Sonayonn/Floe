@@ -52,6 +52,9 @@ const EStaleAttestation: u64 = 27;
 const ESealDenied: u64 = 28;
 const ENavDivergence: u64 = 29;         // attested NAV diverges from trustless lower bound
 const EDepositUnsafe: u64 = 30;         // deposit blocked: NAV unverifiable/unsafe
+const ERedeemNotClaimable: u64 = 31;    // async claim before fulfill
+const ERedeemWrongVault: u64 = 32;      // ticket/vault mismatch
+const ERedeemNotFound: u64 = 33;        // request id not in queue
 const MAX_DIVERGENCE_BPS: u64 = 500;    // 5% — attested NAV may not exceed lower bound by more
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -64,7 +67,7 @@ const BPS_DENOM: u64 = 10_000;
 const PLP_PRICE_SCALE: u64 = 1_000_000_000;       // 9dp
 /// Floe semantic version, packed: MAJOR*1_000_000 + MINOR*1_000 + PATCH.
 /// 8_000 = 0.8.0 (pre-mainnet). 1_000_000 = 1.0.0 reserved for mainnet launch.
-const CONTRACT_VERSION: u64 = 8_000;
+const CONTRACT_VERSION: u64 = 10_000;
 
 // Fee caps + protocol cut (revenue)
 const MAX_MGMT_FEE_BPS: u64 = 300;                // 3% hard cap
@@ -193,6 +196,9 @@ public struct DepositEvent has copy, drop { vault_id: ID, who: address, amount: 
 public struct WithdrawEvent has copy, drop { vault_id: ID, who: address, shares: u64, payout: u64 }
 public struct NavGuardTripped has copy, drop { vault_id: ID, reason: u8, full_nav: u64, lower_bound: u64 }
 public struct PositionSettled has copy, drop { vault_id: ID, position_id: ID, settled_value: u64 }
+public struct RedeemRequested has copy, drop { vault_id: ID, request_id: u64, owner: address, shares: u64, owed_q: u64 }
+public struct RedeemsFulfilled has copy, drop { vault_id: ID, reserved_q: u64 }
+public struct RedeemClaimed has copy, drop { vault_id: ID, request_id: u64, owed_q: u64 }
 public struct FeeAccrued has copy, drop { vault_id: ID, curator_shares: u64, protocol_shares: u64 }
 public struct VaultDeployed has copy, drop { vault_id: ID, curator: address, name: vector<u8> }
 public struct AgentAuthorized has copy, drop { vault_id: ID, agent: address, agent_cap_id: ID, expiry_ms: u64, max_cycles: u64 }
@@ -396,6 +402,62 @@ public struct RevokedCaps has copy, drop, store {}
 /// nav_lower_bound — unlike unsettled marks (positions_mark_total), which stay in the soft
 /// tier. As positions settle, the provable floor RISES. Upgrade-safe (dynamic field).
 public struct SettledTotal has copy, drop, store {}
+
+// ─── Async redemption (ERC-7540-style request/claim) ─────────────────────────
+// A capital-deploying vault can't always serve withdrawals from idle. Async redemption
+// decouples "I want out" (request, shares burned, liability fixed at safe NAV) from
+// "the vault has the cash" (fulfill, after the curator unwinds positions) from "pay me"
+// (claim). This is the institutional standard (notice-period redemptions) and the fix
+// for the bank-run failure mode: illiquid positions + synchronous redemption promises.
+public struct RedeemQueue has copy, drop, store {}          // DF -> vector<RedeemRequest>
+public struct PendingRedeemShares has copy, drop, store {}  // DF -> u64 (shares locked in requests)
+public struct ReservedQ has copy, drop, store {}            // DF -> u64 (idle reserved for fulfilled, unclaimed)
+
+public struct RedeemRequest has store, copy, drop {
+    id: u64,            // monotonic request id (also the RedeemTicket's claim key)
+    owner: address,
+    shares: u64,        // shares burned at request
+    owed_q: u64,        // DUSDC owed, FIXED at request-time safe NAV
+    requested_ms: u64,
+    claimable: bool,    // set true by fulfill_redeems once idle covers it
+}
+
+/// The user's claim receipt — an owned object. Holds the request id; redeemed at claim time.
+public struct RedeemTicket has key, store {
+    id: UID,
+    vault_id: ID,
+    request_id: u64,
+    shares: u64,
+    owed_q: u64,
+}
+
+fun redeem_queue_mut<Q, S>(vault: &mut Vault<Q, S>): &mut vector<RedeemRequest> {
+    if (!df::exists_(&vault.id, RedeemQueue {})) {
+        df::add(&mut vault.id, RedeemQueue {}, vector<RedeemRequest>[]);
+    };
+    df::borrow_mut<RedeemQueue, vector<RedeemRequest>>(&mut vault.id, RedeemQueue {})
+}
+
+fun pending_redeem_shares<Q, S>(vault: &Vault<Q, S>): u64 {
+    if (df::exists_(&vault.id, PendingRedeemShares {})) {
+        *df::borrow<PendingRedeemShares, u64>(&vault.id, PendingRedeemShares {})
+    } else { 0 }
+}
+
+fun add_pending_shares<Q, S>(vault: &mut Vault<Q, S>, n: u64) {
+    if (!df::exists_(&vault.id, PendingRedeemShares {})) {
+        df::add(&mut vault.id, PendingRedeemShares {}, 0u64);
+    };
+    let t = df::borrow_mut<PendingRedeemShares, u64>(&mut vault.id, PendingRedeemShares {});
+    *t = *t + n;
+}
+
+fun sub_pending_shares<Q, S>(vault: &mut Vault<Q, S>, n: u64) {
+    if (df::exists_(&vault.id, PendingRedeemShares {})) {
+        let t = df::borrow_mut<PendingRedeemShares, u64>(&mut vault.id, PendingRedeemShares {});
+        *t = if (*t >= n) { *t - n } else { 0 };
+    };
+}
 
 fun revoked_list<Q, S>(vault: &Vault<Q, S>): vector<ID> {
     if (df::exists_(&vault.id, RevokedCaps {})) {
@@ -656,7 +718,8 @@ public fun withdraw<Q, S>(
     };
     let payout = mul_div(share_amount, nav_for_payout, vault.share_supply);
     assert!(payout > 0, EInsufficientShares);
-    assert!(balance::value(&vault.idle) >= payout, EInsufficientShares);
+    // protect reserved redemption liquidity: pay only from available (unreserved) idle
+    assert!(available_idle(vault) >= payout, EInsufficientShares);
 
     coin::burn(&mut vault.share_treasury, shares);
     vault.share_supply = vault.share_supply - share_amount;
@@ -673,7 +736,8 @@ public fun deploy_idle<Q, S>(
     assert_not_paused(vault);
     assert!(amount > 0, EZeroAmount);
     assert!(vault.policy.enabled_strata & STRATUM_PLP != 0, EStratumDisabled);
-    assert!(balance::value(&vault.idle) >= amount, EInsufficientShares);
+    // can't deploy reserved redemption funds
+    assert!(available_idle(vault) >= amount, EInsufficientShares);
 
     let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, PLP_PRICE_SCALE);
     let tvl = balance::value(&vault.idle) + plp_value + vault.positions_mark_total;
@@ -706,6 +770,117 @@ public fun confirm_redeem<Q, S>(vault: &mut Vault<Q, S>, receipt: RedeemReceipt,
     balance::join(&mut vault.idle, coin::into_balance(dusdc_coin));
 }
 
+// ─── Async share redemption: ReservedQ accessors + request/fulfill/claim ─────
+fun reserved_q<Q, S>(vault: &Vault<Q, S>): u64 {
+    if (df::exists_(&vault.id, ReservedQ {})) { *df::borrow<ReservedQ, u64>(&vault.id, ReservedQ {}) } else { 0 }
+}
+fun add_reserved_q<Q, S>(vault: &mut Vault<Q, S>, n: u64) {
+    if (!df::exists_(&vault.id, ReservedQ {})) { df::add(&mut vault.id, ReservedQ {}, 0u64); };
+    let t = df::borrow_mut<ReservedQ, u64>(&mut vault.id, ReservedQ {}); *t = *t + n;
+}
+fun sub_reserved_q<Q, S>(vault: &mut Vault<Q, S>, n: u64) {
+    if (df::exists_(&vault.id, ReservedQ {})) {
+        let t = df::borrow_mut<ReservedQ, u64>(&mut vault.id, ReservedQ {}); *t = if (*t >= n) { *t - n } else { 0 };
+    };
+}
+
+/// Idle DUSDC NOT already reserved for fulfilled-unclaimed redemptions. Capital-moving
+/// functions (withdraw, deploy_idle, authorize_range) must respect this so reserved
+/// redemption liquidity is never re-deployed or paid to someone else.
+public fun available_idle<Q, S>(vault: &Vault<Q, S>): u64 {
+    let idle = balance::value(&vault.idle);
+    let reserved = reserved_q(vault);
+    if (idle >= reserved) { idle - reserved } else { 0 }
+}
+
+public fun pending_redeem_total_shares<Q, S>(vault: &Vault<Q, S>): u64 { pending_redeem_shares(vault) }
+public fun reserved_for_redemptions<Q, S>(vault: &Vault<Q, S>): u64 { reserved_q(vault) }
+
+/// STEP 1 — request. Burns shares NOW, fixes the DUSDC liability at request-time SAFE NAV.
+/// Returns a RedeemTicket (owned). Does NOT require idle to cover it — a capital-deploying
+/// vault serves exits on a notice period, which is the whole point.
+public fun request_redeem_shares<Q, S>(
+    vault: &mut Vault<Q, S>, shares: Coin<S>, clock: &Clock, ctx: &mut TxContext,
+): RedeemTicket {
+    assert_not_paused(vault);
+    accrue_fees(vault, clock, ctx);
+    let share_amount = coin::value(&shares);
+    assert!(share_amount > 0, EZeroAmount);
+    assert!(share_amount <= vault.share_supply, ESharesExceedSupply);
+
+    let nav_for_payout = if (nav_is_safe(vault, clock)) { total_assets(vault) } else { nav_lower_bound(vault) };
+    let owed_q = mul_div(share_amount, nav_for_payout, vault.share_supply);
+    assert!(owed_q > 0, EInsufficientShares);
+
+    coin::burn(&mut vault.share_treasury, shares);
+    vault.share_supply = vault.share_supply - share_amount;
+
+    let now = clock.timestamp_ms();
+    let sender = ctx.sender();
+    let vid = object::id(vault);
+    let queue = redeem_queue_mut(vault);
+    let request_id = vector::length(queue);
+    vector::push_back(queue, RedeemRequest {
+        id: request_id, owner: sender, shares: share_amount, owed_q, requested_ms: now, claimable: false,
+    });
+    add_pending_shares(vault, share_amount);
+    event::emit(RedeemRequested { vault_id: vid, request_id, owner: sender, shares: share_amount, owed_q });
+
+    RedeemTicket { id: object::new(ctx), vault_id: vid, request_id, shares: share_amount, owed_q }
+}
+
+/// STEP 2 — fulfill (ExecCap). Marks pending requests claimable FIFO up to available idle,
+/// reserving that idle. Stops when the next request can't be covered (stays pending).
+public fun fulfill_redeems<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap, _clock: &Clock) {
+    assert_exec(vault, cap);
+    let mut avail = available_idle(vault);
+    let mut to_reserve = 0u64;
+    let mut freed_shares = 0u64;
+    let vid = object::id(vault);
+    let queue = redeem_queue_mut(vault);
+    let n = vector::length(queue);
+    let mut i = 0;
+    while (i < n) {
+        let req = vector::borrow_mut(queue, i);
+        if (!req.claimable && req.owed_q <= avail) {
+            req.claimable = true;
+            avail = avail - req.owed_q;
+            to_reserve = to_reserve + req.owed_q;
+            freed_shares = freed_shares + req.shares;
+        };
+        i = i + 1;
+    };
+    if (to_reserve > 0) {
+        add_reserved_q(vault, to_reserve);
+        sub_pending_shares(vault, freed_shares);
+        event::emit(RedeemsFulfilled { vault_id: vid, reserved_q: to_reserve });
+    };
+}
+
+/// STEP 3 — claim. Burns the RedeemTicket, pays owed_q from reserved idle. Requires the
+/// matching request to be claimable. Idempotent-safe: marks the request consumed.
+public fun claim_redeem<Q, S>(
+    vault: &mut Vault<Q, S>, ticket: RedeemTicket, ctx: &mut TxContext,
+): Coin<Q> {
+    let RedeemTicket { id, vault_id, request_id, shares: _, owed_q } = ticket;
+    assert!(vault_id == object::id(vault), ERedeemWrongVault);
+    object::delete(id);
+
+    // find the request; must be claimable and not yet consumed (owed_q > 0)
+    let vid = object::id(vault);
+    let queue = redeem_queue_mut(vault);
+    assert!(request_id < vector::length(queue), ERedeemNotFound);
+    let req = vector::borrow_mut(queue, request_id);
+    assert!(req.claimable, ERedeemNotClaimable);
+    assert!(req.owed_q == owed_q && req.owed_q > 0, ERedeemNotFound);
+    req.owed_q = 0; // consumed (prevents double-claim)
+
+    sub_reserved_q(vault, owed_q);
+    let out = coin::from_balance(balance::split(&mut vault.idle, owed_q), ctx);
+    event::emit(RedeemClaimed { vault_id: vid, request_id, owed_q });
+    out
+}
+
 // ─── Stratum B: range ladder ─────────────────────────────────────────────────
 public fun authorize_range<Q, S>(
     vault: &mut Vault<Q, S>, cap: &ExecCap, oracle_id: ID, amount: u64, ctx: &mut TxContext,
@@ -717,7 +892,8 @@ public fun authorize_range<Q, S>(
     assert!(vault.policy.allowed_oracles.contains(&oracle_id), EOracleNotAllowed);
     assert!(amount <= vault.policy.max_position_size, EPositionTooLarge);
     assert!(vault.positions_mark_total + amount <= vault.policy.max_total_exposure, EExposureExceeded);
-    assert!(balance::value(&vault.idle) >= amount, EInsufficientShares);
+    // can't deploy reserved redemption funds
+    assert!(available_idle(vault) >= amount, EInsufficientShares);
     let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, PLP_PRICE_SCALE);
     let tvl = balance::value(&vault.idle) + plp_value + vault.positions_mark_total;
     let idle_after = balance::value(&vault.idle) - amount;

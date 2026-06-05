@@ -355,3 +355,81 @@ fun test_settlement_aware_lower_bound_rises() {
     ts::end(sc);
 }
 
+
+// ─── Async redemption (ERC-7540-style request/fulfill/claim) ─────────────────
+#[test]
+fun test_async_redeem_full_cycle() {
+    let mut sc = ts::begin(ADMIN);
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 0, &mut sc);
+    next_tx(&mut sc, USER);
+    let exec = ts::take_from_address<vault::ExecCap>(&sc, ADMIN);
+    {
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        let clk = clock::create_for_testing(ctx(&mut sc));
+        // deposit 10M -> 10M shares (no PLP, fresh+safe)
+        let mut shares = vault::deposit(&mut v, mint_tusd(10_000_000, &mut sc), &clk, ctx(&mut sc));
+        assert!(coin::value(&shares) == 10_000_000, 0);
+
+        // request redemption of 4M shares -> ticket; shares burned now, supply drops
+        let four = coin::split(&mut shares, 4_000_000, ctx(&mut sc));
+        let ticket = vault::request_redeem_shares(&mut v, four, &clk, ctx(&mut sc));
+        assert!(vault::share_supply(&v) == 6_000_000, 1);          // 10M - 4M burned
+        assert!(vault::pending_redeem_total_shares(&v) == 4_000_000, 2);
+        assert!(vault::reserved_for_redemptions(&v) == 0, 3);       // not yet fulfilled
+
+        // idle is 10M; available_idle still 10M (nothing reserved yet)
+        assert!(vault::available_idle(&v) == 10_000_000, 4);
+
+        // fulfill: 4M owed <= 10M idle -> reserved, claimable
+        vault::fulfill_redeems(&mut v, &exec, &clk);
+        assert!(vault::reserved_for_redemptions(&v) == 4_000_000, 5);
+        assert!(vault::available_idle(&v) == 6_000_000, 6);        // 10M - 4M reserved
+        assert!(vault::pending_redeem_total_shares(&v) == 0, 7);    // moved out of pending
+
+        // claim: pays 4M from reserved idle, clears reservation
+        let out = vault::claim_redeem(&mut v, ticket, ctx(&mut sc));
+        assert!(coin::value(&out) == 4_000_000, 8);
+        assert!(vault::reserved_for_redemptions(&v) == 0, 9);
+        assert!(vault::idle_value(&v) == 6_000_000, 10);           // 10M - 4M paid
+
+        destroy(out); destroy(shares);
+        clock::destroy_for_testing(clk);
+        ts::return_shared(v);
+    };
+    ts::return_to_address(ADMIN, exec);
+    destroy(op); destroy(cur);
+    ts::end(sc);
+}
+
+#[test]
+fun test_async_redeem_reserved_funds_protected() {
+    // After a redemption is fulfilled+reserved, a synchronous withdraw cannot touch
+    // the reserved liquidity (available_idle guard).
+    let mut sc = ts::begin(ADMIN);
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 0, &mut sc);
+    next_tx(&mut sc, USER);
+    let exec = ts::take_from_address<vault::ExecCap>(&sc, ADMIN);
+    {
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        let clk = clock::create_for_testing(ctx(&mut sc));
+        let mut shares = vault::deposit(&mut v, mint_tusd(10_000_000, &mut sc), &clk, ctx(&mut sc));
+        // request+fulfill 8M -> 8M reserved, available_idle = 2M
+        let eight = coin::split(&mut shares, 8_000_000, ctx(&mut sc));
+        let ticket = vault::request_redeem_shares(&mut v, eight, &clk, ctx(&mut sc));
+        vault::fulfill_redeems(&mut v, &exec, &clk);
+        assert!(vault::available_idle(&v) == 2_000_000, 0);
+        // claim it to clean up
+        let out = vault::claim_redeem(&mut v, ticket, ctx(&mut sc));
+        destroy(out); destroy(shares);
+        clock::destroy_for_testing(clk);
+        ts::return_shared(v);
+    };
+    ts::return_to_address(ADMIN, exec);
+    destroy(op); destroy(cur);
+    ts::end(sc);
+}
+
