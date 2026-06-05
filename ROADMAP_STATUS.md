@@ -188,3 +188,20 @@ VERSIONING: FLOE_VERSION=0.8.0 (SDK + package.json), CONTRACT_VERSION=8_000 (pac
 next publish). 0.x=pre-mainnet; 1.0.0 reserved for mainnet.
 THE EARN-PAGE DIFFERENTIATOR: every Floe NAV carries a provable safety verdict; competitors show
 asserted numbers. This is the trust inversion (Enzyme/Lagoon/Ember all report; Floe proves-or-refuses).
+
+## SETTLEMENT-AWARE NAV — DONE (contract + tests + SDK; published V9 / Floe 0.9.0)
+floe V9: 0x7869a58cb2246136a5a00e2d74a59e1b6e3e1f87c8ecd9ea92b210f228f2d6ca (Sui v9; CONTRACT_VERSION=8_000)
+Binary/range positions settle to a known value at expiry (workshop-confirmed: $0/$1×size). Floe now
+distinguishes CERTAIN settled value from SOFT unsettled marks:
+- settle_position(vault, ExecCap, position_id, settled_value): moves value from positions_mark_total
+  (soft) into a SettledTotal dynamic field (certain). Emits PositionSettled. Upgrade-safe (DF, no struct change).
+- nav_lower_bound() now = idle + PLP + settled_total -> the trustless floor RISES as positions settle.
+- total_assets() unchanged in total, reclassified (mark tier = unsettled, settled tier = certain).
+Test: test_settlement_aware_lower_bound_rises (10/10) — proves a position sits in soft tier (floor
+excludes it) then settles into certain tier (floor rises), total unchanged.
+SDK: VaultState gains settledTotal/unsettledMarks/pctCertain (reads the SettledTotal DF). settlePosition
+action (src/vault/actions.ts). Live ref vault: NAV 7.51 / floor 2.11 / settled 0 / unsettled 5.40 / pctCertain 28.07%.
+THE METRIC: pctCertain = '% of NAV that is cryptographically provable right now.' No competitor can
+show it (no certain tier, no attestation). Climbs toward 100% as positions settle + heartbeat runs.
+Strengthens the circuit breaker: settled positions shrink the 'degraded' gap.
+VERSION: FLOE_VERSION 0.9.0 (SDK + package.json). CONTRACT_VERSION 8_000 now live on-chain (rode this publish).

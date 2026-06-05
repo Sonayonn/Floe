@@ -38,3 +38,21 @@ fun test_vol_payload_serde() {
     // intent(1) + timestamp(8) + oracle_id(32) + vol_bps(8) + spot(8) = 57 bytes
     assert!(bytes.length() == 57, 2);
 }
+
+/// CollateralPayload (a NON-Floe use case: a lending market valuing illiquid collateral)
+/// signs through the SAME enclave + IntentMessage path, distinct intent (COLLATERAL=3).
+/// Proves the attestation primitive generalizes to any protocol — same 57-byte shape.
+#[test]
+fun test_collateral_payload_serde() {
+    let scope: u8 = 3;            // COLLATERAL_INTENT
+    let timestamp: u64 = 1744038900000;
+    let asset_id = @0xCAFE;
+    let value: u64 = 250000000;
+    let ltv_bps: u64 = 7500;
+    let payload = floe_nav::new_collateral_payload(asset_id, value, ltv_bps);
+    let intent_message = enclave::create_intent_message(scope, timestamp, payload);
+    let bytes = bcs::to_bytes(&intent_message);
+    // intent(1) + timestamp(8) + asset_id(32) + value(8) + ltv_bps(8) = 57 bytes
+    assert!(bytes.length() == 57, 3);
+}
+

@@ -1,5 +1,9 @@
 /**
- * Attestation — Floe's verifiable-NAV moat, surfaced for builders.
+ * Attestation — the Floe Verifiable Valuation primitive, surfaced for builders.
+ *
+ * Register an enclave once; attest any typed value; verify on-chain with intent-separation.
+ * Three reference consumers: NAV (intent 1), vol (2), collateral (3) — the last a non-Floe
+ * use case proving this is reusable infrastructure, not a vault feature.
  *
  * Floe NAV (and vol) can be hardware-attested: a value is signed inside a registered
  * AWS Nitro enclave, and floe_nav verifies that signature on-chain (enclave::verify_signature)
@@ -105,5 +109,20 @@ export function verifyVolAttested(
   return verify(floe, 'verify_vol_attested', {
     primary: args.volBps, secondary: args.spot,
     subjectId: args.oracleId, timestampMs: args.timestampMs, signatureHex: args.signatureHex,
+  });
+}
+
+/**
+ * Verify an enclave-signed COLLATERAL valuation on-chain (distinct intent = 3).
+ * Reference consumer #3 — demonstrates the attestation primitive generalizes beyond
+ * Floe: any protocol (e.g. a lending market) can attest a hard-to-value number the same way.
+ */
+export function verifyCollateral(
+  floe: FloeClient,
+  args: { value: bigint; ltvBps: bigint; assetId: string; timestampMs: bigint; signatureHex: string },
+): Promise<string> {
+  return verify(floe, 'verify_collateral_attested', {
+    primary: args.value, secondary: args.ltvBps,
+    subjectId: args.assetId, timestampMs: args.timestampMs, signatureHex: args.signatureHex,
   });
 }

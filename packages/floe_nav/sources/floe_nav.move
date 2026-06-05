@@ -1,9 +1,18 @@
-/// Floe NAV attestation via Nautilus.
+/// Floe Verifiable Valuation — a reusable Sui attestation primitive.
 ///
-/// Integrates Mysten's enclave primitive (move/enclave): a NAV update is accepted
-/// only if it carries a signature, over the NAV payload, from a registered Nautilus
-/// enclave whose PCR measurements are attested on-chain. This is the production
-/// verification path — "NAV computed by hardware-attested code, verified on-chain."
+/// Register a Nautilus enclave once (its PCR measurements attested on-chain); then
+/// attest ANY typed value computed by that hardware-attested code, and verify the
+/// signature on-chain before acting on it. Each value type is a typed payload with a
+/// DISTINCT intent byte, so a signature for one kind can never be replayed as another.
+///
+/// This is infrastructure, not a vault feature: any protocol with hard-to-value
+/// positions (a vault's NAV, a vol index, a lending market's illiquid collateral) can
+/// use the same primitive. Floe is its FIRST consumer.
+///
+/// Reference instances below:
+///   - NavPayload        (intent 1) — a vault's net asset value          [Floe's flagship use]
+///   - VolPayload        (intent 2) — an on-chain implied-vol index
+///   - CollateralPayload (intent 3) — illiquid collateral valuation       [a 3rd-party use case]
 ///
 /// Pattern follows Mysten's weather-example: an OTW + EnclaveConfig (PCRs) created at
 /// init, and verify via enclave::verify_signature over a BCS payload that must match
@@ -34,6 +43,7 @@ public struct VolPayload has copy, drop {
 const NAV_INTENT: u8 = 1;
 /// Intent byte for VOL attestations (distinct domain separator).
 const VOL_INTENT: u8 = 2;
+const COLLATERAL_INTENT: u8 = 3;  // 3rd-party use case: illiquid collateral valuation
 
 const EBadEnclaveSig: u64 = 0;
 
@@ -96,4 +106,34 @@ public fun verify_vol_attested<T>(
 
 public fun new_vol_payload(oracle_id: address, vol_bps: u64, spot: u64): VolPayload {
     VolPayload { oracle_id, vol_bps, spot }
+}
+
+// ─── Reference consumer #3: illiquid collateral valuation (a NON-Floe use case) ──
+// Demonstrates the primitive generalizes: a lending market could attest the value of
+// hard-to-price collateral the same way Floe attests NAV. Same 57-byte BCS shape
+// (address + u64 + u64); distinct intent (3) prevents cross-payload signature replay.
+public struct CollateralPayload has copy, drop {
+    asset_id: address,
+    value: u64,
+    ltv_bps: u64,
+}
+
+public fun verify_collateral_attested<T>(
+    enclave: &Enclave<T>,
+    value: u64,
+    ltv_bps: u64,
+    asset_id: address,
+    timestamp_ms: u64,
+    signature: vector<u8>,
+): (u64, u64) {
+    let payload = CollateralPayload { asset_id, value, ltv_bps };
+    let ok = enclave::verify_signature<T, CollateralPayload>(
+        enclave, COLLATERAL_INTENT, timestamp_ms, payload, &signature,
+    );
+    assert!(ok, EBadEnclaveSig);
+    (value, ltv_bps)
+}
+
+public fun new_collateral_payload(asset_id: address, value: u64, ltv_bps: u64): CollateralPayload {
+    CollateralPayload { asset_id, value, ltv_bps }
 }
