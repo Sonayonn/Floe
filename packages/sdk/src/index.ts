@@ -13,6 +13,7 @@ import * as vol from './vol/index.ts';
 import * as attestation from './attestation/index.ts';
 import * as agent from './agent/index.ts';
 import * as walrus from './walrus/index.ts';
+import * as seal from './seal/index.ts';
 
 /** Vault reads + (later) actions. */
 export const FloeVault = { ...vaultRead, ...vaultDeploy };
@@ -32,6 +33,8 @@ export const Attestation = { ...attestation };
 export const Agent = { ...agent };
 /** Tamper-evident audit trail — NAV/rebalance snapshots on Walrus, indexed on-chain. */
 export const Walrus = { ...walrus };
+/** Strategy-parameter privacy — Seal-encrypted config, capability-gated decryption. */
+export const Seal = { ...seal };
 
 export type { VaultState } from './vault/read.ts';
 export type { VaultInfo } from './registry.ts';

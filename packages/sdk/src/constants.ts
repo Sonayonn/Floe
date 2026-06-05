@@ -3,7 +3,8 @@
 export const FLOE_ADDRESSES = {
   testnet: {
     // Core vault layer (factory, registry, treasury, agents)
-    package:       '0x96697a09e6e526fd85ef252432019a61754869cca1632cbc49b1c01fdcdad93b', // V6 (agent layer)
+    package:       '0x7994220af64ecc3fd732d38aa2afb349dad5bdb3ccfaea0143752e2ef13824ef', // V7 (seal policy)
+    packageOriginal: '0x1aacf4f9f787807d811c058e4a3194f48b2ad30f50096c0713668b656bbd6003', // TRUE genesis publish (type-origin verified) — Seal packageId namespace
     module:        'floe',
     registry:      '0x3462badecc7b4274b222f3b2bf0f0ddab572c294336ec8e7c7d62f42bf1a2f45',
     treasury:      '0x756dbb6350b61e838afcb81fd1c53975af7b51756f6cc0f6d1981b7df8b2639e',
@@ -40,6 +41,15 @@ export const FLOE_ADDRESSES = {
       btcOracle:      '0xb79524498a9947307e192d8045772150dc47aade4f9e09bd4b6fe3236b9e3125',
     },
 
+    seal: {
+      // Open-mode independent testnet key servers (no API keys; accept any package).
+      // Source: seal-docs.wal.app/UsingSeal (verified current).
+      keyServers: [
+        '0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75',
+        '0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8',
+      ],
+      threshold: 2,
+    },
     clock: '0x6',
   },
 } as const;

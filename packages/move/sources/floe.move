@@ -49,6 +49,7 @@ const EBadAttester: u64 = 24;           // attestation
 const ENoAttester: u64 = 25;
 const EBadAttestation: u64 = 26;
 const EStaleAttestation: u64 = 27;
+const ESealDenied: u64 = 28;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const PRICE_STALENESS_LIMIT_MS: u64 = 3_600_000;
@@ -819,6 +820,29 @@ public fun set_max_capacity<Q, S>(vault: &mut Vault<Q, S>, cap: &CuratorCap, cap
 public fun set_strategy_blob<Q, S>(vault: &mut Vault<Q, S>, cap: &CuratorCap, blob: vector<u8>) {
     assert_curator_cap(vault, cap);
     vault.strategy_config_blob = blob;
+}
+
+// Seal access policy: the curator's StrategyConfig is Seal-encrypted; the Seal `id`
+// is the vault id's bytes. Key servers DRY-RUN one of these seal_approve* functions
+// to decide whether to release decryption shares. Possessing the gating capability
+// in the decryption PTB IS the proof of authority. The same capability system that
+// gates execution gates secrets: revoke an agent and it loses BOTH.
+fun seal_id_matches<Q, S>(vault: &Vault<Q, S>, id: vector<u8>): bool {
+    object::id(vault).to_bytes() == id
+}
+
+entry fun seal_approve_curator<Q, S>(id: vector<u8>, vault: &Vault<Q, S>, cap: &CuratorCap) {
+    assert!(cap.vault_id == object::id(vault), EWrongVault);
+    assert!(seal_id_matches(vault, id), ESealDenied);
+}
+
+entry fun seal_approve_agent<Q, S>(id: vector<u8>, vault: &Vault<Q, S>, cap: &ExecCap) {
+    assert!(cap.vault_id == object::id(vault), EWrongVault);
+    assert!(seal_id_matches(vault, id), ESealDenied);
+    assert!(!is_revoked(vault, object::id(cap)), EMandateRevoked);
+    if (cap.mandate.is_some()) {
+        assert!(!cap.mandate.borrow().revoked, EMandateRevoked);
+    };
 }
 
 // ─── Audit ───────────────────────────────────────────────────────────────────

@@ -38,6 +38,9 @@ importers:
 
   packages/sdk:
     dependencies:
+      '@mysten/seal':
+        specifier: ^0.10.0
+        version: 0.10.0(typescript@5.9.3)
       '@mysten/sui':
         specifier: 1.45.2
         version: 1.45.2(typescript@5.9.3)
@@ -255,6 +258,9 @@ packages:
   '@mysten/deepbook-v3@0.28.3':
     resolution: {integrity: sha512-J9zm8Ct8NThzJ38vbWs/ZL8JW7V8RWyApmVlSfZ80Z36YSSEKbOVRtPCMGjRd6IGt7j/zgOXYa4OZ6mfPHz1+A==}
     engines: {node: '>=18'}
+
+  '@mysten/seal@0.10.0':
+    resolution: {integrity: sha512-vxO6MCR4Pb6KM4+EoaHZvqnntSmjtMMP+0e/vvoo0AgXcZt1aAWeC38naOnDtaLl8529GxCazkv4NmxS+OvTKw==}
 
   '@mysten/sui@1.45.2':
     resolution: {integrity: sha512-gftf7fNpFSiXyfXpbtP2afVEnhc7p2m/MEYc/SO5pov92dacGKOpQIF7etZsGDI1Wvhv+dpph+ulRNpnYSs7Bg==}
@@ -627,6 +633,17 @@ snapshots:
       - '@gql.tada/vue-support'
       - debug
       - supports-color
+      - typescript
+
+  '@mysten/seal@0.10.0(typescript@5.9.3)':
+    dependencies:
+      '@mysten/bcs': 1.9.2
+      '@mysten/sui': 1.45.2(typescript@5.9.3)
+      '@noble/curves': 1.9.4
+      '@noble/hashes': 1.8.0
+    transitivePeerDependencies:
+      - '@gql.tada/svelte-support'
+      - '@gql.tada/vue-support'
       - typescript
 
   '@mysten/sui@1.45.2(typescript@5.9.3)':

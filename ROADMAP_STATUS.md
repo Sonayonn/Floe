@@ -138,3 +138,16 @@ SDK (same phase, per standing rule): Agent module — authorizeAgent, revokeAgen
 (reads AgentRegistry), consumeMandateCycle, resolveVaultTypes. Wired into index + sdk-tour.
 The agent-authority control plane (attenuated/attested/revocable) the industry bolts onto OAuth —
 native on Sui because a capability is a first-class object. Positioning pillar, now real + tested.
+
+## WALRUS — DONE (audit trail, live; + SDK module same phase)
+Tamper-evident NAV/rebalance history, proven end-to-end on testnet:
+- storeSnapshot → PUT JSON to the public Walrus testnet publisher (free; it pays storage).
+  Proven: blob UQb9DHO1kDTQQGEzE3KDcGvaD5kkO_Vbd_NfE_gSRbk stored (234 bytes).
+- recordBlob → indexes the blob id ON-CHAIN via the existing record_walrus_blob (ExecCap-gated),
+  append-only on vault.walrus_blob_ids. Proven tx 6chb8rb99hxGiZq2Y7u6XMTAHPh6aoAF2CphUFnquupf.
+- reconstructHistory → reads the on-chain blob list + fetches each snapshot from the aggregator.
+  Proven: reconstructed [NAV 7.51 / share 0.50] from chain+Walrus.
+Endpoints (verified live): publisher/aggregator .walrus-testnet.walrus.space. Blob id stored as
+UTF-8 bytes of the base64url id. SDK Walrus module (storeSnapshot/readSnapshot/recordBlob/
+listBlobIds/reconstructHistory/WALRUS_TESTNET) wired into index + examples/walrus-prove.ts.
+Stack component #9. The "auditable performance" half of the moat (paired w/ Nautilus = proven, Seal = private).
