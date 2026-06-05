@@ -317,3 +317,41 @@ fun test_circuit_breaker_withdraw_always_exits_at_lower_bound() {
     ts::end(sc);
 }
 
+
+// ─── Settlement-aware NAV ────────────────────────────────────────────────────
+#[test]
+fun test_settlement_aware_lower_bound_rises() {
+    // A position's value starts in the soft mark tier (excluded from lower bound), then
+    // settles into the certain tier (included in lower bound). Verifies the floor RISES.
+    let mut sc = ts::begin(ADMIN);
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 0, &mut sc);
+    next_tx(&mut sc, USER);
+    {
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        let clk = clock::create_for_testing(ctx(&mut sc));
+        // deposit 10M idle
+        let shares = vault::deposit(&mut v, mint_tusd(10_000_000, &mut sc), &clk, ctx(&mut sc));
+        // simulate a position carrying 3M of mark value via the test helper
+        let pid = vault::test_insert_marked_position(&mut v, 3_000_000, ctx(&mut sc));
+        // lower bound EXCLUDES the soft mark -> still ~10M (idle only, no PLP)
+        let lb_before = vault::nav_lower_bound(&v);
+        assert!(lb_before == 10_000_000, 0);
+        // total_assets INCLUDES it -> 13M
+        assert!(vault::test_total_assets(&v) == 13_000_000, 1);
+        // settle the position at 3M (in-the-money) -> moves to certain tier
+        vault::test_settle(&mut v, pid, 3_000_000);
+        // lower bound now INCLUDES settled value -> 13M (the floor rose)
+        let lb_after = vault::nav_lower_bound(&v);
+        assert!(lb_after == 13_000_000, 2);
+        // total unchanged
+        assert!(vault::test_total_assets(&v) == 13_000_000, 3);
+        destroy(shares);
+        clock::destroy_for_testing(clk);
+        ts::return_shared(v);
+    };
+    destroy(op); destroy(cur);
+    ts::end(sc);
+}
+

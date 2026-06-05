@@ -166,3 +166,25 @@ KEY LESSON: Seal encrypt requires the GENESIS package id (type-origin verified: 
 NOT any upgraded id. Found via typeOriginTable / getNormalizedMoveModulesByPackage module defining-address.
 constants: packageOriginal=0x1aacf4f9 (genesis), package=0x7994220a (V7), seal.keyServers + threshold added.
 Stack component #10 (the privacy layer). Moat trio complete: Nautilus proves NAV, Seal keeps strategy private, Walrus makes history auditable.
+
+## CIRCUIT BREAKER (Tier-1 #2) — DONE (contract + tests + SDK; published V8)
+floe V8: 0x4a6db5eda3ed6897ccd34b0d971110a11d123a6188d5973b8bcd539e5a5fa50e (Sui v8 / Floe semver 0.8.0)
+The category's #1 failure mode (Stream Finance, $8.8B 2025 oracle-NAV losses) is minting/redeeming
+against an ASSERTED NAV. Floe's NAV is hardware-attested w/ a freshness window, so the contract
+REFUSES to act on a NAV it can't verify:
+- nav_lower_bound(): trustless floor = idle + PLP×price (EXCLUDES soft position marks). Un-inflatable.
+- nav_within_divergence(): full NAV may not exceed the floor by >MAX_DIVERGENCE_BPS (500=5%).
+- nav_is_safe(): fresh AND non-divergent (attested vaults); freshness-only for unattested.
+- nav_safety_status(): (fresh, within_divergence, attested) read for the frontend badge.
+- DEPOSIT fails closed (EDepositUnsafe) — never mint against unverified NAV (protects holders).
+- WITHDRAW never blocks (fixes trapped-funds anti-pattern): safe -> full NAV; unsafe -> lower bound
+  + emits NavGuardTripped (reason 1=stale/2=divergent). Users ALWAYS exit, never over-paid.
+Tests: 9/9 (test_circuit_breaker_lower_bound_safe + always_exits_at_lower_bound). 
+SDK: VaultState gains navLowerBound/navFresh/navWithinDivergence/navSafe/navSafetyLabel
+('verified'|'unattested'|'degraded-stale'|'degraded-divergent'), computed client-side mirroring the
+contract (no extra RPC). Live ref vault reads NAV 7.51 / floor 2.11 / badge degraded-stale (honest:
+PLP heartbeat not running — fixed in quality pass; flips to 'verified' once heartbeating).
+VERSIONING: FLOE_VERSION=0.8.0 (SDK + package.json), CONTRACT_VERSION=8_000 (packed semver, rides
+next publish). 0.x=pre-mainnet; 1.0.0 reserved for mainnet.
+THE EARN-PAGE DIFFERENTIATOR: every Floe NAV carries a provable safety verdict; competitors show
+asserted numbers. This is the trust inversion (Enzyme/Lagoon/Ember all report; Floe proves-or-refuses).

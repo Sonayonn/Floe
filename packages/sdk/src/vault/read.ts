@@ -29,6 +29,9 @@ export interface VaultState {
   navWithinDivergence: boolean;// full NAV agrees with the lower bound (<= 5%)
   navSafe: boolean;            // aggregate: safe to deposit / redeem at full NAV
   navSafetyLabel: 'verified' | 'unattested' | 'degraded-stale' | 'degraded-divergent';
+  settledTotal: bigint;
+  unsettledMarks: bigint;
+  pctCertain: number;
 }
 
 function f(obj: any): any {
@@ -49,12 +52,23 @@ export async function getVaultState(floe: FloeClient, vaultId: string): Promise<
   const supply = BigInt(v.share_supply ?? 0);
 
   const plpValue = (plpHeld * plpPrice) / PLP_PRICE_SCALE;
-  const nav = idle + plpValue + marks;
+  // Settlement-aware: read SettledTotal dynamic field (certain, resolved value).
+  let settledTotal = 0n;
+  try {
+    const sf = await floe.sui.getDynamicFieldObject({
+      parentId: vaultId,
+      name: { type: `${floe.addresses.package}::${floe.addresses.module}::SettledTotal`, value: {} },
+    });
+    const val = (sf.data?.content as any)?.fields?.value;
+    if (val != null) settledTotal = BigInt(val);
+  } catch { /* no settled positions yet */ }
+  const unsettledMarks = marks;
+  const nav = idle + plpValue + unsettledMarks + settledTotal;
 
   // ── circuit-breaker safety verdict (mirrors floe::nav_safety_status) ──
   const STALENESS_MS = 3_600_000n;      // PRICE_STALENESS_LIMIT_MS
   const MAX_DIVERGENCE_BPS = 500n;      // 5%
-  const navLowerBound = idle + plpValue;            // excludes soft marks
+  const navLowerBound = idle + plpValue + settledTotal; // floor includes settled (certain)
   const updatedMs = BigInt(v.plp_price_updated_ms ?? 0);
   const nowMs = BigInt(Date.now());
   const attestedFlag = (v.fees?.fields ?? {}).attested ?? false;
@@ -70,6 +84,7 @@ export async function getVaultState(floe: FloeClient, vaultId: string): Promise<
     : navSafe ? 'verified'
     : !navFresh ? 'degraded-stale'
     : 'degraded-divergent';
+  const pctCertain = nav === 0n ? 100 : Number((navLowerBound * 10_000n) / nav) / 100;
   const navSafety = { navLowerBound, navFresh, navWithinDivergence, navSafe, navSafetyLabel };
   const sharePrice = supply === 0n ? INITIAL_SHARE_PRICE : (nav * INITIAL_SHARE_PRICE) / supply;
 
@@ -93,6 +108,7 @@ export async function getVaultState(floe: FloeClient, vaultId: string): Promise<
     plpPriceUpdatedMs: BigInt(v.plp_price_updated_ms ?? 0),
     priceIsStale: plpHeld > 0n && plpPrice === 0n,
     ...navSafety,
+    settledTotal, unsettledMarks, pctCertain,
   };
 }
 

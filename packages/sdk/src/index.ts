@@ -3,6 +3,7 @@ export { FLOE_ADDRESSES, FLOE_VERSION, type FloeNetwork } from './constants.ts';
 
 import * as vaultRead from './vault/read.ts';
 import * as vaultDeploy from './vault/deploy.ts';
+import * as vaultActions from './vault/actions.ts';
 import * as registry from './registry.ts';
 import * as treasury from './treasury.ts';
 import * as share from './share/publish.ts';
@@ -16,7 +17,7 @@ import * as walrus from './walrus/index.ts';
 import * as seal from './seal/index.ts';
 
 /** Vault reads + (later) actions. */
-export const FloeVault = { ...vaultRead, ...vaultDeploy };
+export const FloeVault = { ...vaultRead, ...vaultDeploy, ...vaultActions };
 /** The Earn directory. */
 export const Registry = { ...registry };
 /** Protocol revenue. */

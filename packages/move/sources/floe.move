@@ -192,6 +192,7 @@ public struct FloeTreasury has key { id: UID }
 public struct DepositEvent has copy, drop { vault_id: ID, who: address, amount: u64, shares: u64 }
 public struct WithdrawEvent has copy, drop { vault_id: ID, who: address, shares: u64, payout: u64 }
 public struct NavGuardTripped has copy, drop { vault_id: ID, reason: u8, full_nav: u64, lower_bound: u64 }
+public struct PositionSettled has copy, drop { vault_id: ID, position_id: ID, settled_value: u64 }
 public struct FeeAccrued has copy, drop { vault_id: ID, curator_shares: u64, protocol_shares: u64 }
 public struct VaultDeployed has copy, drop { vault_id: ID, curator: address, name: vector<u8> }
 public struct AgentAuthorized has copy, drop { vault_id: ID, agent: address, agent_cap_id: ID, expiry_ms: u64, max_cycles: u64 }
@@ -390,6 +391,12 @@ fun agent_cap_id_eq(info: &AgentInfo, id: ID): bool { info.agent_id == id }
 /// objects attach as dynamic fields.
 public struct RevokedCaps has copy, drop, store {}
 
+/// DF key holding the running total of SETTLED position value (resolved at expiry to a
+/// known $0/$1×size value). Settled value is CERTAIN, so it counts toward the trustless
+/// nav_lower_bound — unlike unsettled marks (positions_mark_total), which stay in the soft
+/// tier. As positions settle, the provable floor RISES. Upgrade-safe (dynamic field).
+public struct SettledTotal has copy, drop, store {}
+
 fun revoked_list<Q, S>(vault: &Vault<Q, S>): vector<ID> {
     if (df::exists_(&vault.id, RevokedCaps {})) {
         *df::borrow<RevokedCaps, vector<ID>>(&vault.id, RevokedCaps {})
@@ -402,6 +409,27 @@ fun record_revoked<Q, S>(vault: &mut Vault<Q, S>, cap_id: ID) {
     };
     let list = df::borrow_mut<RevokedCaps, vector<ID>>(&mut vault.id, RevokedCaps {});
     if (!list.contains(&cap_id)) { list.push_back(cap_id); };
+}
+
+fun settled_total<Q, S>(vault: &Vault<Q, S>): u64 {
+    if (df::exists_(&vault.id, SettledTotal {})) {
+        *df::borrow<SettledTotal, u64>(&vault.id, SettledTotal {})
+    } else { 0 }
+}
+
+fun add_settled<Q, S>(vault: &mut Vault<Q, S>, amount: u64) {
+    if (!df::exists_(&vault.id, SettledTotal {})) {
+        df::add(&mut vault.id, SettledTotal {}, 0u64);
+    };
+    let t = df::borrow_mut<SettledTotal, u64>(&mut vault.id, SettledTotal {});
+    *t = *t + amount;
+}
+
+fun sub_settled<Q, S>(vault: &mut Vault<Q, S>, amount: u64) {
+    if (df::exists_(&vault.id, SettledTotal {})) {
+        let t = df::borrow_mut<SettledTotal, u64>(&mut vault.id, SettledTotal {});
+        *t = if (*t >= amount) { *t - amount } else { 0 };
+    };
 }
 
 fun is_revoked<Q, S>(vault: &Vault<Q, S>, cap_id: ID): bool {
@@ -460,7 +488,7 @@ public fun vault_count(registry: &VaultRegistry): u64 { registry.vaults.length()
 public fun total_assets<Q, S>(vault: &Vault<Q, S>): u64 {
     let idle = balance::value(&vault.idle);
     let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, PLP_PRICE_SCALE);
-    idle + plp_value + vault.positions_mark_total
+    idle + plp_value + vault.positions_mark_total + settled_total(vault)
 }
 
 // ─── NAV safety: the circuit breaker ─────────────────────────────────────────
@@ -477,7 +505,8 @@ public fun total_assets<Q, S>(vault: &Vault<Q, S>): u64 {
 public fun nav_lower_bound<Q, S>(vault: &Vault<Q, S>): u64 {
     let idle = balance::value(&vault.idle);
     let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, PLP_PRICE_SCALE);
-    idle + plp_value
+    // settled positions are resolved/certain -> they belong in the provable floor
+    idle + plp_value + settled_total(vault)
 }
 
 /// True if the full NAV does not over-claim vs the trustless lower bound.
@@ -721,6 +750,23 @@ public fun mark_position<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap, position_
     vault.positions_mark_total = vault.positions_mark_total - old_mark + new_mark;
     let pos = table::borrow_mut(&mut vault.positions, position_id);
     pos.mark_value_cached = new_mark;
+}
+
+/// Settle a position at expiry: its value is now CERTAIN (resolved to settled_value, e.g.
+/// $1×size if in-the-money, $0 if not). Moves that value out of the soft mark tier and into
+/// the SETTLED tier, which counts toward the trustless nav_lower_bound. ExecCap-gated; the
+/// caller reads the oracle settlement price. The position remains in the table (its mark is
+/// now its settled value) until redeemed/removed.
+public fun settle_position<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap, position_id: ID, settled_value: u64) {
+    assert_exec(vault, cap);
+    assert!(table::contains(&vault.positions, position_id), EPositionNotFound);
+    let old_mark = table::borrow(&vault.positions, position_id).mark_value_cached;
+    // remove from soft tier, add to certain (settled) tier
+    vault.positions_mark_total = vault.positions_mark_total - old_mark;
+    add_settled(vault, settled_value);
+    let pos = table::borrow_mut(&mut vault.positions, position_id);
+    pos.mark_value_cached = settled_value;
+    event::emit(PositionSettled { vault_id: object::id(vault), position_id, settled_value });
 }
 
 public fun authorize_redeem_range<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap, position_id: ID): RangeRedeemReceipt {
@@ -1073,6 +1119,28 @@ public fun test_inject_gain<Q, S>(vault: &mut Vault<Q, S>, coin_in: Coin<Q>) {
 
 #[test_only]
 public fun test_agent_count(registry: &AgentRegistry): u64 { registry.agents.length() }
+
+#[test_only]
+public fun test_insert_marked_position<Q, S>(vault: &mut Vault<Q, S>, mark: u64, ctx: &mut TxContext): ID {
+    let id = object::id_from_address(tx_context::fresh_object_address(ctx));
+    table::add(&mut vault.positions, id, RangePosition {
+        oracle_id: id, expiry_ms: 0, lower_strike: 0, upper_strike: 0,
+        size: 0, premium_paid: mark, minted_at_ms: 0, mark_value_cached: mark,
+    });
+    vault.position_count = vault.position_count + 1;
+    vault.positions_mark_total = vault.positions_mark_total + mark;
+    id
+}
+
+#[test_only]
+public fun test_settle<Q, S>(vault: &mut Vault<Q, S>, position_id: ID, settled_value: u64) {
+    assert!(table::contains(&vault.positions, position_id), EPositionNotFound);
+    let old_mark = table::borrow(&vault.positions, position_id).mark_value_cached;
+    vault.positions_mark_total = vault.positions_mark_total - old_mark;
+    add_settled(vault, settled_value);
+    let pos = table::borrow_mut(&mut vault.positions, position_id);
+    pos.mark_value_cached = settled_value;
+}
 
 #[test_only]
 public fun test_exec_cap_id(cap: &ExecCap): ID { object::id(cap) }
