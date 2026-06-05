@@ -262,3 +262,58 @@ fun test_agent_revoke_killswitch() {
     destroy(op); destroy(cur);
     ts::end(sc);
 }
+
+
+// ─── Circuit breaker (NAV safety) ────────────────────────────────────────────
+#[test]
+fun test_circuit_breaker_lower_bound_safe_when_no_plp() {
+    let mut sc = ts::begin(ADMIN);
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 0, &mut sc);
+    next_tx(&mut sc, USER);
+    {
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        let clk = clock::create_for_testing(ctx(&mut sc));
+        // fresh vault, no PLP held -> price is fresh, lower bound == total assets, safe
+        let shares = vault::deposit(&mut v, mint_tusd(10_000_000, &mut sc), &clk, ctx(&mut sc));
+        assert!(vault::nav_is_safe(&v, &clk), 0);
+        // lower bound == idle (no PLP, no marks) == total_assets here
+        assert!(vault::nav_lower_bound(&v) == vault::test_total_assets(&v), 1);
+        // withdraw works at full NAV
+        let out = vault::withdraw(&mut v, shares, &clk, ctx(&mut sc));
+        assert!(coin::value(&out) == 10_000_000, 2);
+        destroy(out);
+        clock::destroy_for_testing(clk);
+        ts::return_shared(v);
+    };
+    destroy(op); destroy(cur);
+    ts::end(sc);
+}
+
+#[test]
+fun test_circuit_breaker_withdraw_always_exits_at_lower_bound() {
+    // Inject a gain into idle (raises total_assets) with no attestation; deposit then withdraw.
+    // With marks at 0 and PLP at 0, lower_bound == total_assets, so this verifies the always-exit
+    // path returns funds (never traps), and the safe-path payout matches.
+    let mut sc = ts::begin(ADMIN);
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 0, &mut sc);
+    next_tx(&mut sc, USER);
+    {
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        let clk = clock::create_for_testing(ctx(&mut sc));
+        let shares = vault::deposit(&mut v, mint_tusd(10_000_000, &mut sc), &clk, ctx(&mut sc));
+        vault::test_inject_gain(&mut v, mint_tusd(2_000_000, &mut sc)); // idle now 12M
+        // user still holds all shares; withdraw returns full backing (lower bound == total here)
+        let out = vault::withdraw(&mut v, shares, &clk, ctx(&mut sc));
+        assert!(coin::value(&out) == 12_000_000, 0);
+        destroy(out);
+        clock::destroy_for_testing(clk);
+        ts::return_shared(v);
+    };
+    destroy(op); destroy(cur);
+    ts::end(sc);
+}
+

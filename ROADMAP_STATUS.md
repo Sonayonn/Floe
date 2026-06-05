@@ -151,3 +151,18 @@ Endpoints (verified live): publisher/aggregator .walrus-testnet.walrus.space. Bl
 UTF-8 bytes of the base64url id. SDK Walrus module (storeSnapshot/readSnapshot/recordBlob/
 listBlobIds/reconstructHistory/WALRUS_TESTNET) wired into index + examples/walrus-prove.ts.
 Stack component #9. The "auditable performance" half of the moat (paired w/ Nautilus = proven, Seal = private).
+
+## SEAL — DONE (strategy privacy, live; + SDK module same phase)
+floe V7: 0x7994220af64ecc3fd732d38aa2afb349dad5bdb3ccfaea0143752e2ef13824ef
+Contract: seal_approve_curator<Q,S>(id, vault, &CuratorCap) + seal_approve_agent<Q,S>(id, vault, &ExecCap)
+— key servers DRY-RUN these to gate decryption. seal_id_matches binds the Seal id to the vault id bytes.
+seal_approve_agent reuses the assert_exec kill-switch: a revoked agent loses decryption too (ESealDenied=28).
+SDK Seal module (@mysten/seal@0.10.0 — pinned for @mysten/sui 1.45.2 compat; 1.1.3 wants sui v2, rejected
+to avoid bumping the whole SDK): encryptStrategy, setStrategyBlob/getStrategyBlob, decryptStrategyAsCurator
+(SessionKey + seal_approve PTB). Key servers: 2 open-mode independent testnet, threshold 2.
+PROVEN LIVE end-to-end: encrypt (489B) -> store on-chain (tx FT1Pk21RKZ7inMU3j2d8FMFzuGWCJWna9XXFzPW23MTm)
+-> read back -> decrypt as curator -> exact round-trip match.
+KEY LESSON: Seal encrypt requires the GENESIS package id (type-origin verified: 0x1aacf4f9f787807d811c058e4a3194f48b2ad30f50096c0713668b656bbd6003),
+NOT any upgraded id. Found via typeOriginTable / getNormalizedMoveModulesByPackage module defining-address.
+constants: packageOriginal=0x1aacf4f9 (genesis), package=0x7994220a (V7), seal.keyServers + threshold added.
+Stack component #10 (the privacy layer). Moat trio complete: Nautilus proves NAV, Seal keeps strategy private, Walrus makes history auditable.

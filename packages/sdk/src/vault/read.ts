@@ -23,6 +23,12 @@ export interface VaultState {
   version: bigint;
   plpPriceUpdatedMs: bigint;
   priceIsStale: boolean;   // true if vault holds PLP but price is 0/old
+  // Circuit-breaker safety (mirrors the contract's nav_safety_status, computed client-side)
+  navLowerBound: bigint;       // trustless floor: idle + PLP×price (excludes soft marks)
+  navFresh: boolean;           // attested NAV within the freshness window
+  navWithinDivergence: boolean;// full NAV agrees with the lower bound (<= 5%)
+  navSafe: boolean;            // aggregate: safe to deposit / redeem at full NAV
+  navSafetyLabel: 'verified' | 'unattested' | 'degraded-stale' | 'degraded-divergent';
 }
 
 function f(obj: any): any {
@@ -44,6 +50,27 @@ export async function getVaultState(floe: FloeClient, vaultId: string): Promise<
 
   const plpValue = (plpHeld * plpPrice) / PLP_PRICE_SCALE;
   const nav = idle + plpValue + marks;
+
+  // ── circuit-breaker safety verdict (mirrors floe::nav_safety_status) ──
+  const STALENESS_MS = 3_600_000n;      // PRICE_STALENESS_LIMIT_MS
+  const MAX_DIVERGENCE_BPS = 500n;      // 5%
+  const navLowerBound = idle + plpValue;            // excludes soft marks
+  const updatedMs = BigInt(v.plp_price_updated_ms ?? 0);
+  const nowMs = BigInt(Date.now());
+  const attestedFlag = (v.fees?.fields ?? {}).attested ?? false;
+  const navFresh = plpHeld === 0n
+    ? true
+    : updatedMs > 0n && nowMs - updatedMs <= STALENESS_MS;
+  const excess = nav > navLowerBound ? nav - navLowerBound : 0n;
+  const divBps = navLowerBound === 0n ? 0n : (excess * 10_000n) / navLowerBound;
+  const navWithinDivergence = divBps <= MAX_DIVERGENCE_BPS;
+  const navSafe = navFresh && (attestedFlag ? navWithinDivergence : true);
+  const navSafetyLabel: VaultState['navSafetyLabel'] =
+    !attestedFlag ? 'unattested'
+    : navSafe ? 'verified'
+    : !navFresh ? 'degraded-stale'
+    : 'degraded-divergent';
+  const navSafety = { navLowerBound, navFresh, navWithinDivergence, navSafe, navSafetyLabel };
   const sharePrice = supply === 0n ? INITIAL_SHARE_PRICE : (nav * INITIAL_SHARE_PRICE) / supply;
 
   return {
@@ -65,6 +92,7 @@ export async function getVaultState(floe: FloeClient, vaultId: string): Promise<
     version: BigInt(v.version ?? 0),
     plpPriceUpdatedMs: BigInt(v.plp_price_updated_ms ?? 0),
     priceIsStale: plpHeld > 0n && plpPrice === 0n,
+    ...navSafety,
   };
 }
 

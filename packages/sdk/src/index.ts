@@ -1,5 +1,5 @@
 export { FloeClient, type FloeClientConfig } from './client.ts';
-export { FLOE_ADDRESSES, type FloeNetwork } from './constants.ts';
+export { FLOE_ADDRESSES, FLOE_VERSION, type FloeNetwork } from './constants.ts';
 
 import * as vaultRead from './vault/read.ts';
 import * as vaultDeploy from './vault/deploy.ts';

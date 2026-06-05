@@ -50,6 +50,9 @@ const ENoAttester: u64 = 25;
 const EBadAttestation: u64 = 26;
 const EStaleAttestation: u64 = 27;
 const ESealDenied: u64 = 28;
+const ENavDivergence: u64 = 29;         // attested NAV diverges from trustless lower bound
+const EDepositUnsafe: u64 = 30;         // deposit blocked: NAV unverifiable/unsafe
+const MAX_DIVERGENCE_BPS: u64 = 500;    // 5% — attested NAV may not exceed lower bound by more
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const PRICE_STALENESS_LIMIT_MS: u64 = 3_600_000;
@@ -59,7 +62,9 @@ const MIN_FIRST_DEPOSIT: u64 = 1_000_000;
 const MS_PER_YEAR: u64 = 31_557_600_000;          // 365.25 days
 const BPS_DENOM: u64 = 10_000;
 const PLP_PRICE_SCALE: u64 = 1_000_000_000;       // 9dp
-const CONTRACT_VERSION: u64 = 1;
+/// Floe semantic version, packed: MAJOR*1_000_000 + MINOR*1_000 + PATCH.
+/// 8_000 = 0.8.0 (pre-mainnet). 1_000_000 = 1.0.0 reserved for mainnet launch.
+const CONTRACT_VERSION: u64 = 8_000;
 
 // Fee caps + protocol cut (revenue)
 const MAX_MGMT_FEE_BPS: u64 = 300;                // 3% hard cap
@@ -186,6 +191,7 @@ public struct FloeTreasury has key { id: UID }
 // ─── Events ──────────────────────────────────────────────────────────────────
 public struct DepositEvent has copy, drop { vault_id: ID, who: address, amount: u64, shares: u64 }
 public struct WithdrawEvent has copy, drop { vault_id: ID, who: address, shares: u64, payout: u64 }
+public struct NavGuardTripped has copy, drop { vault_id: ID, reason: u8, full_nav: u64, lower_bound: u64 }
 public struct FeeAccrued has copy, drop { vault_id: ID, curator_shares: u64, protocol_shares: u64 }
 public struct VaultDeployed has copy, drop { vault_id: ID, curator: address, name: vector<u8> }
 public struct AgentAuthorized has copy, drop { vault_id: ID, agent: address, agent_cap_id: ID, expiry_ms: u64, max_cycles: u64 }
@@ -457,6 +463,45 @@ public fun total_assets<Q, S>(vault: &Vault<Q, S>): u64 {
     idle + plp_value + vault.positions_mark_total
 }
 
+// ─── NAV safety: the circuit breaker ─────────────────────────────────────────
+// The category's #1 failure mode (Stream Finance, the 2025 oracle-NAV exploits) is
+// minting/redeeming shares against a NAV that was *asserted*, not *proven*. Floe's NAV
+// is hardware-attested with a freshness window — so the contract can REFUSE to act on a
+// NAV it can't verify is fresh AND consistent with what the chain independently knows.
+//
+// nav_lower_bound() is NAV that CANNOT be inflated: only idle balance + PLP valued at the
+// cached price. It deliberately EXCLUDES positions_mark_total (the soft, mark-based part an
+// operator could overstate). The divergence guard trips if the full (attested) NAV exceeds
+// this trustless floor by more than MAX_DIVERGENCE_BPS — i.e. the attested number claims
+// materially more than the chain can independently support.
+public fun nav_lower_bound<Q, S>(vault: &Vault<Q, S>): u64 {
+    let idle = balance::value(&vault.idle);
+    let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, PLP_PRICE_SCALE);
+    idle + plp_value
+}
+
+/// True if the full NAV does not over-claim vs the trustless lower bound.
+public fun nav_within_divergence<Q, S>(vault: &Vault<Q, S>): bool {
+    let bound = nav_lower_bound(vault);
+    let full = total_assets(vault);
+    if (full <= bound) { return true };           // marks never *raise* the floor concern
+    let excess = full - bound;
+    // excess / bound <= MAX_DIVERGENCE_BPS / 10000
+    mul_div(excess, 10_000, if (bound == 0) { 1 } else { bound }) <= MAX_DIVERGENCE_BPS
+}
+
+/// Aggregate safety: NAV is safe to ACT ON (deposit) iff fresh AND non-divergent.
+/// (Non-attested vaults have no attested NAV to diverge; only freshness applies.)
+public fun nav_is_safe<Q, S>(vault: &Vault<Q, S>, clock: &Clock): bool {
+    if (!is_price_fresh(vault, clock)) { return false };
+    if (vault.fees.attested) { nav_within_divergence(vault) } else { true }
+}
+
+/// Read accessor for the frontend "NAV-safe" badge: (fresh, within_divergence, attested).
+public fun nav_safety_status<Q, S>(vault: &Vault<Q, S>, clock: &Clock): (bool, bool, bool) {
+    (is_price_fresh(vault, clock), nav_within_divergence(vault), vault.fees.attested)
+}
+
 public fun share_price<Q, S>(vault: &Vault<Q, S>): u64 {
     if (vault.share_supply == 0) {
         INITIAL_SHARE_PRICE
@@ -530,7 +575,10 @@ public fun deposit<Q, S>(
 ): Coin<S> {
     assert_not_paused(vault);
     assert!(!vault.deposits_frozen, EDepositsFrozen);
+    // Circuit breaker: deposits require a NAV we can PROVE is fresh and non-divergent.
+    // Minting against an unverified NAV would dilute/over-credit existing holders.
     assert!(is_price_fresh(vault, clock), EPriceStale);
+    assert!(nav_is_safe(vault, clock), EDepositUnsafe);
     accrue_fees(vault, clock, ctx);
 
     let amount = coin::value(&payment);
@@ -557,14 +605,27 @@ public fun withdraw<Q, S>(
     vault: &mut Vault<Q, S>, shares: Coin<S>, clock: &Clock, ctx: &mut TxContext,
 ): Coin<Q> {
     assert_not_paused(vault);
-    assert!(is_price_fresh(vault, clock), EPriceStale);
+    // (always-exit: no freshness block here — see nav_for_payout below)
     accrue_fees(vault, clock, ctx);
 
     let share_amount = coin::value(&shares);
     assert!(share_amount > 0, EZeroAmount);
     assert!(share_amount <= vault.share_supply, ESharesExceedSupply);
 
-    let payout = mul_div(share_amount, total_assets(vault), vault.share_supply);
+    // Always-exit: safe NAV -> full; stale/divergent -> trustless lower bound (never over-pays).
+    let nav_for_payout = if (nav_is_safe(vault, clock)) {
+        total_assets(vault)
+    } else {
+        let lb = nav_lower_bound(vault);
+        event::emit(NavGuardTripped {
+            vault_id: object::id(vault),
+            reason: if (!is_price_fresh(vault, clock)) { 1 } else { 2 },
+            full_nav: total_assets(vault),
+            lower_bound: lb,
+        });
+        lb
+    };
+    let payout = mul_div(share_amount, nav_for_payout, vault.share_supply);
     assert!(payout > 0, EInsufficientShares);
     assert!(balance::value(&vault.idle) >= payout, EInsufficientShares);
 

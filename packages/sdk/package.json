@@ -1,6 +1,6 @@
 {
   "name": "@floe/sdk",
-  "version": "0.1.0",
+  "version": "0.8.0",
   "description": "Floe — the verifiable, options-native vault layer for Sui. TypeScript SDK.",
   "license": "MIT",
   "type": "module",
