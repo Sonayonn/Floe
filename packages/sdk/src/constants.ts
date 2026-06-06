@@ -1,12 +1,12 @@
 /** Floe protocol version (semantic). 0.x = pre-mainnet; 1.0.0 reserved for mainnet launch. */
-export const FLOE_VERSION = '0.11.0';
+export const FLOE_VERSION = '0.12.0';
 
 /** Floe canonical on-chain addresses (testnet). Single source of truth — the SDK
  *  and any "build on Floe" consumer reference these, never hardcoded literals. */
 export const FLOE_ADDRESSES = {
   testnet: {
     // Core vault layer (factory, registry, treasury, agents)
-    package:       '0xd309425888b6855bd7ea7e0503ab39406e4d5d4cae1ae209bb92b3c07cf96860', // V10 (async redemption; settlement-aware NAV + circuit breaker)
+    package:       '0x260c7074d9c995bcc3c3b1ba4aa872ed05ea221f8ef4c3057d0efe30ef765f83', // V10 (async redemption; settlement-aware NAV + circuit breaker)
     packageOriginal: '0x1aacf4f9f787807d811c058e4a3194f48b2ad30f50096c0713668b656bbd6003', // TRUE genesis publish (type-origin verified) — Seal packageId namespace
     module:        'floe',
     registry:      '0x3462badecc7b4274b222f3b2bf0f0ddab572c294336ec8e7c7d62f42bf1a2f45',

@@ -495,3 +495,46 @@ fun test_guardian_veto_agent_killswitch() {
     ts::end(sc);
 }
 
+
+// ─── Permissionless settlement (self-healing NAV) ────────────────────────────
+#[test]
+fun test_permissionless_settle_tightens_floor() {
+    let mut sc = ts::begin(ADMIN);
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 0, &mut sc);
+    next_tx(&mut sc, USER);
+    {
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        // insert a soft-marked position (mark = 1_000_000), no PLP so floor excludes it
+        let pid = vault::test_insert_marked_position(&mut v, 1_000_000, ctx(&mut sc));
+        let floor_before = vault::nav_lower_bound(&v);   // excludes soft mark
+        // ANYONE settles it (no cap) at <= mark -> moves to certain tier -> floor rises
+        vault::settle_position_permissionless(&mut v, pid, 1_000_000);
+        let floor_after = vault::nav_lower_bound(&v);
+        assert!(floor_after == floor_before + 1_000_000, 0);  // settled value now in the floor
+        ts::return_shared(v);
+    };
+    destroy(op); destroy(cur);
+    ts::end(sc);
+}
+
+#[test]
+#[expected_failure(abort_code = floe::floe::ESettleAboveMark)]
+fun test_permissionless_settle_cannot_inflate() {
+    let mut sc = ts::begin(ADMIN);
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 0, &mut sc);
+    next_tx(&mut sc, USER);
+    {
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        let pid = vault::test_insert_marked_position(&mut v, 1_000_000, ctx(&mut sc));
+        // attempt to settle ABOVE the mark -> must abort ESettleAboveMark (no inflation)
+        vault::settle_position_permissionless(&mut v, pid, 2_000_000);
+        ts::return_shared(v);
+    };
+    destroy(op); destroy(cur);
+    ts::end(sc);
+}
+

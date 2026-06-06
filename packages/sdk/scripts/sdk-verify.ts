@@ -2,7 +2,7 @@ import { SuiClient, getFullnodeUrl } from '@mysten/sui/client';
 import { FLOE_ADDRESSES, FLOE_VERSION } from '../src/index.ts';
 const sui = new SuiClient({ url: getFullnodeUrl('testnet') });
 const a = FLOE_ADDRESSES.testnet;
-const MUST_REACH = ['deposit','withdraw','request_redeem_shares','fulfill_redeems','claim_redeem','settle_position','update_nav_attested','register_attester','register_enclave','record_walrus_blob','authorize_agent','revoke_agent','set_paused','guardian_halt','guardian_veto_agent'];
+const MUST_REACH = ['deposit','withdraw','request_redeem_shares','fulfill_redeems','claim_redeem','settle_position','update_nav_attested','register_attester','register_enclave','record_walrus_blob','authorize_agent','revoke_agent','set_paused','guardian_halt','guardian_veto_agent','settle_position_permissionless'];
 async function liveFns(pkg: string, mod: string): Promise<string[]> {
   const m: any = await sui.getNormalizedMoveModule({ package: pkg, module: mod });
   return Object.keys(m.exposedFunctions);

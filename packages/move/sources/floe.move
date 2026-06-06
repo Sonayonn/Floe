@@ -56,6 +56,7 @@ const ERedeemNotClaimable: u64 = 31;    // async claim before fulfill
 const ERedeemWrongVault: u64 = 32;      // ticket/vault mismatch
 const ERedeemNotFound: u64 = 33;        // request id not in queue
 const EGuardianWrongVault: u64 = 34;    // guardian cap / vault mismatch
+const ESettleAboveMark: u64 = 35;       // permissionless settle cannot exceed existing mark
 const MAX_DIVERGENCE_BPS: u64 = 500;    // 5% — attested NAV may not exceed lower bound by more
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -950,6 +951,27 @@ public fun settle_position<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap, positio
     assert!(table::contains(&vault.positions, position_id), EPositionNotFound);
     let old_mark = table::borrow(&vault.positions, position_id).mark_value_cached;
     // remove from soft tier, add to certain (settled) tier
+    vault.positions_mark_total = vault.positions_mark_total - old_mark;
+    add_settled(vault, settled_value);
+    let pos = table::borrow_mut(&mut vault.positions, position_id);
+    pos.mark_value_cached = settled_value;
+    event::emit(PositionSettled { vault_id: object::id(vault), position_id, settled_value });
+}
+
+/// Permissionless settlement (self-healing NAV): ANYONE can resolve a position into the
+/// certain (settled) tier WITHOUT an ExecCap. Safety invariant: settled_value must be <= the
+/// position's existing soft mark, so this can NEVER inflate NAV — it only moves value
+/// soft->certain (tightening the provable lower bound) or marks down. A griefer can only make
+/// the vault MORE provable, never extract or over-claim. The enclave heartbeat trues up the
+/// real post-settlement PLP value separately (via the attested NAV path). This is what makes a
+/// Floe vault's NAV not just provable but ALWAYS-CURRENT: settled positions can't sit stale
+/// because anyone is empowered (and unable to abuse) to resolve them.
+public fun settle_position_permissionless<Q, S>(
+    vault: &mut Vault<Q, S>, position_id: ID, settled_value: u64,
+) {
+    assert!(table::contains(&vault.positions, position_id), EPositionNotFound);
+    let old_mark = table::borrow(&vault.positions, position_id).mark_value_cached;
+    assert!(settled_value <= old_mark, ESettleAboveMark);   // can only tighten, never inflate
     vault.positions_mark_total = vault.positions_mark_total - old_mark;
     add_settled(vault, settled_value);
     let pos = table::borrow_mut(&mut vault.positions, position_id);
