@@ -76,3 +76,77 @@ export async function updateVolIndex(floe: FloeClient, oracleId?: string): Promi
 
 /** Convenience: vol as a human percentage (e.g. 5132 bps -> 51.32). */
 export const bpsToPercent = (bps: bigint): number => Number(bps) / 100;
+
+// ─── Attested vol (Floe Index) ───────────────────────────────────────────────
+import { fromHex } from '@mysten/sui/utils';
+
+/** Register the enclave attester pubkey on the VolIndex (one-time, 32-byte ed25519 key). */
+export async function registerVolAttester(
+  floe: FloeClient, o: { pubkeyHex: string },
+): Promise<string> {
+  if (!floe.signer) throw new Error('registerVolAttester requires a signer');
+  const a = floe.addresses;
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${a.vol.package}::${a.vol.module}::register_vol_attester`,
+    arguments: [tx.object(a.vol.volIndex), tx.pure.vector('u8', Array.from(fromHex(o.pubkeyHex.replace(/^0x/, ''))))],
+  });
+  const res = await floe.sui.signAndExecuteTransaction({ signer: floe.signer, transaction: tx, options: { showEffects: true } });
+  if (res.effects?.status?.status !== 'success') throw new Error(`register_vol_attester failed: ${res.effects?.status?.error}`);
+  return res.digest;
+}
+
+/** Submit an enclave-signed vol reading. Anyone may call; the contract verifies the signature
+ *  against the registered key, binding vol to the on-chain oracle id + a freshness window. */
+export async function updateVolAttested(
+  floe: FloeClient,
+  o: { oracleId: string; volBps: bigint; spot: bigint; timestampMs: bigint; signatureHex: string },
+): Promise<string> {
+  if (!floe.signer) throw new Error('updateVolAttested requires a signer');
+  const a = floe.addresses;
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${a.vol.package}::${a.vol.module}::update_vol_attested`,
+    arguments: [
+      tx.object(a.vol.volIndex),
+      tx.pure.id(o.oracleId),
+      tx.pure.u64(o.volBps),
+      tx.pure.u64(o.spot),
+      tx.pure.u64(o.timestampMs),
+      tx.pure.vector('u8', Array.from(fromHex(o.signatureHex.replace(/^0x/, '')))),
+      tx.object(a.clock),
+    ],
+  });
+  const res = await floe.sui.signAndExecuteTransaction({ signer: floe.signer, transaction: tx, options: { showEffects: true } });
+  if (res.effects?.status?.status !== 'success') throw new Error(`update_vol_attested failed: ${res.effects?.status?.error}`);
+  return res.digest;
+}
+
+export interface AttestedVolReading {
+  volBps: bigint; spot: bigint; oracleId: string; timestampMs: bigint; fresh: boolean;
+}
+
+/** Read the attested vol record (the VERIFIABLE vol number + freshness). devInspect, no gas. */
+export async function attestedVol(floe: FloeClient): Promise<AttestedVolReading> {
+  const a = floe.addresses;
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${a.vol.package}::${a.vol.module}::attested_vol`,
+    arguments: [tx.object(a.vol.volIndex), tx.object(a.clock)],
+  });
+  const r = await floe.sui.devInspectTransactionBlock({
+    transactionBlock: tx,
+    sender: floe.address ?? '0x0000000000000000000000000000000000000000000000000000000000000000',
+  });
+  const rv = r.results?.[0]?.returnValues;
+  if (!rv || rv.length < 5) throw new Error('attested_vol returned no value (none registered yet?)');
+  const u64 = (b: number[]): bigint => { let v = 0n; for (let i = b.length - 1; i >= 0; i--) v = (v << 8n) + BigInt(b[i]); return v; };
+  const idHex = '0x' + (rv[2][0] as number[]).map(x => x.toString(16).padStart(2, '0')).join('');
+  return {
+    volBps: u64(rv[0][0] as number[]),
+    spot: u64(rv[1][0] as number[]),
+    oracleId: idHex,
+    timestampMs: u64(rv[3][0] as number[]),
+    fresh: (rv[4][0] as number[])[0] === 1,
+  };
+}

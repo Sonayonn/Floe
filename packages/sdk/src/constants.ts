@@ -31,7 +31,7 @@ export const FLOE_ADDRESSES = {
 
     // On-chain implied-volatility index (from DeepBook Predict SVI oracle)
     vol: {
-      package:  '0xc3400957c89e4be866b31fbb3d7679a5a8723aa789821800c00c245165110f34',
+      package:  '0xa040d5122fccbaf79c36ecbe61e6f726c048645d529e916edda13eb2f5d37d26',
       module:   'floe_vol_index',
       volIndex: '0x114b2934a04bb9e063bc368ffd6cba06fd821dd54edadd48e5e118e7b57f119a',
     },

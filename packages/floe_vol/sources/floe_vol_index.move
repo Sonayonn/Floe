@@ -11,8 +11,15 @@
 /// Fixed-point scale 1e9 (matches SVIParams + i64 float_scaling).
 module floe_vol::floe_vol_index;
 
+// Attested vol: the enclave signs a VolPayload (intent 2, same shape as floe_nav) so any
+// consumer gets a VERIFIABLE vol reading with a freshness proof — no stale-feed / feeder-lag
+// risk. floe_vol self-verifies (imports ed25519) so 'Floe Index' is a standalone primitive.
+
 use sui::clock::Clock;
 use sui::event;
+use sui::ed25519;
+use sui::dynamic_field as df;
+use std::bcs;
 use deepbook_predict::oracle::{Self, OracleSVI};
 
 const SCALE: u128 = 1_000_000_000;
@@ -116,3 +123,67 @@ public fun current_vol_bps(index: &VolIndex): u64 { index.vol_bps }
 public fun current_spot(index: &VolIndex): u64 { index.spot }
 public fun last_updated_ms(index: &VolIndex): u64 { index.updated_ms }
 public fun sample_count(index: &VolIndex): u64 { index.samples }
+
+
+// ─── Attested vol (Floe Index) ───────────────────────────────────────────────
+const EBadVolAttester: u64 = 100;
+const ENoVolAttester: u64 = 101;
+const EBadVolAttestation: u64 = 102;
+const EStaleVolAttestation: u64 = 103;
+const VOL_INTENT: u8 = 2;                 // matches floe_nav VolPayload intent
+const VOL_FRESH_WINDOW_MS: u64 = 600_000; // 10 min
+
+public struct VolAttesterKey has copy, drop, store {}
+public struct AttestedVol has copy, drop, store { vol_bps: u64, spot: u64, oracle_id: ID, timestamp_ms: u64 }
+public struct AttestedVolKey has copy, drop, store {}
+public struct VolAttested has copy, drop { vol_bps: u64, spot: u64, oracle_id: ID, timestamp_ms: u64 }
+
+/// Register the enclave attester pubkey (settable once; the index is a singleton public good).
+public fun register_vol_attester(index: &mut VolIndex, pubkey: vector<u8>) {
+    assert!(pubkey.length() == 32, EBadVolAttester);
+    assert!(!df::exists_(&index.id, VolAttesterKey {}), EBadVolAttester); // once only
+    df::add(&mut index.id, VolAttesterKey {}, pubkey);
+}
+
+public fun vol_attester(index: &VolIndex): vector<u8> {
+    if (df::exists_(&index.id, VolAttesterKey {})) { *df::borrow<VolAttesterKey, vector<u8>>(&index.id, VolAttesterKey {}) } else { vector[] }
+}
+
+/// Attested vol update: the enclave signs BCS(intent=2 || oracle_id || vol_bps || spot || timestamp_ms).
+/// Anyone can submit a signed reading; the contract verifies it against the registered key, binding
+/// the vol to the on-chain oracle identity + a freshness window. Tamper any field -> sig fails -> abort.
+public fun update_vol_attested(
+    index: &mut VolIndex, oracle_id: ID, vol_bps: u64, spot: u64, timestamp_ms: u64,
+    signature: vector<u8>, clock: &Clock,
+) {
+    assert!(df::exists_(&index.id, VolAttesterKey {}), ENoVolAttester);
+    let now = clock.timestamp_ms();
+    assert!(timestamp_ms <= now && now - timestamp_ms <= VOL_FRESH_WINDOW_MS, EStaleVolAttestation);
+
+    // reconstruct the signed message: intent || oracle_id || vol_bps || spot || timestamp_ms
+    let mut msg = vector<u8>[VOL_INTENT];
+    msg.append(bcs::to_bytes(&oracle_id));
+    msg.append(bcs::to_bytes(&vol_bps));
+    msg.append(bcs::to_bytes(&spot));
+    msg.append(bcs::to_bytes(&timestamp_ms));
+
+    let pubkey = df::borrow<VolAttesterKey, vector<u8>>(&index.id, VolAttesterKey {});
+    assert!(ed25519::ed25519_verify(&signature, pubkey, &msg), EBadVolAttestation);
+
+    let rec = AttestedVol { vol_bps, spot, oracle_id, timestamp_ms };
+    if (df::exists_(&index.id, AttestedVolKey {})) {
+        let _old: AttestedVol = df::remove(&mut index.id, AttestedVolKey {});
+    };
+    df::add(&mut index.id, AttestedVolKey {}, rec);
+    event::emit(VolAttested { vol_bps, spot, oracle_id, timestamp_ms });
+}
+
+/// Read the attested vol record (vol_bps, spot, oracle_id, timestamp_ms, is_fresh).
+public fun attested_vol(index: &VolIndex, clock: &Clock): (u64, u64, ID, u64, bool) {
+    assert!(df::exists_(&index.id, AttestedVolKey {}), ENoVolAttester);
+    let r = df::borrow<AttestedVolKey, AttestedVol>(&index.id, AttestedVolKey {});
+    let fresh = clock.timestamp_ms() - r.timestamp_ms <= VOL_FRESH_WINDOW_MS;
+    (r.vol_bps, r.spot, r.oracle_id, r.timestamp_ms, fresh)
+}
+
+public fun has_attested_vol(index: &VolIndex): bool { df::exists_(&index.id, AttestedVolKey {}) }
