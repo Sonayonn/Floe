@@ -224,3 +224,43 @@ POSITIONING: 'Floe's verifiable-NAV moat is itself a reusable primitive. Proven 
 value types — vault NAV, vol index, lending collateral — through one hardware-attested path. Floe is
 the first consumer of infrastructure others build on.' Answers 'what if a clone copies the moat':
 the moat is now a documented primitive, and the positioning is primitive-tier (Walrus/Nautilus peer).
+
+## #4 ASYNC DEPOSIT/REDEEM (ERC-7540-style) — DONE (contract V10 / Floe 0.10.0)
+floe V10: 0xa73e90cf09ca5b35c191b0add61eecc557549f2ff18037c64b52b83c2241b665 (CONTRACT_VERSION=10_000)
+THE withdrawal-liquidity solution for a capital-deploying vault (Lagoon-parity on the one mechanism
+that matters; the fix for the bank-run failure mode: illiquid positions + sync redemption = collapse).
+- request_redeem_shares: burns shares NOW, fixes DUSDC liability at request-time SAFE NAV (circuit-breaker
+  valuation: safe->full, unsafe->lower bound), returns owned RedeemTicket. NO idle requirement (the point).
+- fulfill_redeems (ExecCap): marks requests claimable FIFO up to available idle, reserving it.
+- claim_redeem: burns ticket, pays owed_q from reserved idle, prevents double-claim (owed_q=0 after).
+- available_idle = idle - reserved; withdraw/deploy_idle/authorize_range now use it so reserved
+  redemption funds can't be re-deployed or paid to a sync withdrawer. (3-function integration.)
+- HYBRID withdrawal (the UX edge over pure-async Lagoon): synchronous withdraw still pays INSTANTLY
+  when available_idle covers it; async request/claim is the fallback when it doesn't — exit always
+  honored, never trapped, never a revert.
+Tests: 12/12 (test_async_redeem_full_cycle + reserved_funds_protected). SDK: requestRedeem/fulfillRedeems/
+claimRedeem actions (FloeVault). DF state: RedeemQueue, PendingRedeemShares, ReservedQ.
+FRONTEND NOTE: Withdraw UX = "instant when liquid, request+claim when not" — surface pending/claimable.
+STRUCTURED-VAULT positioning (confirmed): Floe IS a structured-products vault (binary + ranges + PLP,
+SVI-valued, Margin-hedged). NOT options (Predict is binary-only — never claim calls/puts).
+
+## BUILD QUEUE — post DeepBook-Predict-problem-statement (the judges' wishlist)
+The problem statement validated Floe dead-center: "a vault that takes the other side with
+auditable on-chain LP economics" (= PLP + provable NAV), "primitives portable across the
+ecosystem, not locked in one app" (= Floe as a LAYER), and idea #1 is "Range Ladder Vault w/
+tokenized share + withdrawal queue" (we have all three incl. async queue as of V10).
+
+IMMEDIATE: [A] VERIFY dUSDC alignment (our DUSDC type == canonical Predict dUSDC — disqualifier
+if wrong). [B] SDK liveness+coverage check (standing pnpm sdk:verify).
+CONTRACT: [#5] guardian/veto (GuardianCap; owner governs/curator configures/agent executes/
+guardian halts).
+FOUR PRIMITIVES ("attest what others can only assert" — each turns an idea-bank display/bot
+into a VERIFIABLE primitive via our live enclave):
+  [P1] Attested PLP-risk (RiskPayload intent 4: enclave signs utilization/exposure/±5σ drawdown).
+  [P2] Attested vol oracle (floe_vol signed w/ freshness — kills "stale SVI/feeder lag").
+  [P3] SHARE as attested collateral on deepbook_margin (ACTIVATES CollateralPayload intent 3).
+  [P4] Self-healing settlement (redeem_permissionless: anyone settles+recovers, funds to VAULT).
+DOC-REQUIRED: [R1] redeem_permissionless integration (real fund recovery). [R2] Strategy
+backtest (HARD REQUIREMENT per "minimum requirement: proper simulation result").
+FRONTEND [F]: Earn dir + Surface Studio + hybrid-withdrawal UX + predict-server indexer.
+SEQUENCING: A -> B -> #5 -> R1+P4 -> P2 -> P1 -> R2 -> P3 -> F. All primitives ship WITH SDK.

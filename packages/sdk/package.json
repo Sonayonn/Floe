@@ -10,7 +10,8 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
-    "test": "tsx examples/read-live.ts"
+    "test": "tsx examples/read-live.ts",
+    "sdk:verify": "tsx scripts/sdk-verify.ts"
   },
   "dependencies": {
     "@mysten/seal": "^0.10.0",

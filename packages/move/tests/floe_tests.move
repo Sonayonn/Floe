@@ -5,7 +5,7 @@ use sui::test_scenario::{Self as ts, next_tx, ctx};
 use std::unit_test::destroy;
 use sui::coin::{Self, Coin};
 use sui::clock;
-use floe::floe::{Self as vault, Vault, OwnerCap, CuratorCap, VaultRegistry, AgentRegistry, ExecCap, TEST_SHARE};
+use floe::floe::{Self as vault, Vault, OwnerCap, CuratorCap, VaultRegistry, AgentRegistry, ExecCap, GuardianCap, TEST_SHARE};
 
 public struct TUSD has drop {}
 
@@ -429,6 +429,68 @@ fun test_async_redeem_reserved_funds_protected() {
         ts::return_shared(v);
     };
     ts::return_to_address(ADMIN, exec);
+    destroy(op); destroy(cur);
+    ts::end(sc);
+}
+
+
+// ─── Guardian: emergency halt + veto (separation of powers) ──────────────────
+#[test]
+fun test_guardian_halt_owner_resumes() {
+    let mut sc = ts::begin(ADMIN);
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 0, &mut sc);
+    // the GuardianCap was transferred to the curator (ADMIN) at deploy
+    next_tx(&mut sc, ADMIN);
+    let gcap = ts::take_from_address<GuardianCap>(&sc, ADMIN);
+    {
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        assert!(!vault::is_paused(&v), 0);
+        // guardian halts unilaterally
+        vault::guardian_halt(&mut v, &gcap);
+        assert!(vault::is_paused(&v), 1);
+        // owner resumes (guardian has no resume power — owner authority required)
+        vault::set_paused(&mut v, &op, false);
+        assert!(!vault::is_paused(&v), 2);
+        ts::return_shared(v);
+    };
+    ts::return_to_address(ADMIN, gcap);
+    destroy(op); destroy(cur);
+    ts::end(sc);
+}
+
+#[test]
+fun test_guardian_veto_agent_killswitch() {
+    // guardian vetoes an agent -> that agent's ExecCap fails the kill-switch (assert_exec).
+    let mut sc = ts::begin(ADMIN);
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 0, &mut sc);
+    // authorize an agent (curator mints an attenuated ExecCap to AGENT)
+    next_tx(&mut sc, ADMIN);
+    {
+        let mut areg = ts::take_shared<AgentRegistry>(&sc);
+        let v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        let clk = clock::create_for_testing(ctx(&mut sc));
+        vault::authorize_agent(&v, &cur, &mut areg, AGENT, clk.timestamp_ms() + 1_000_000, 100, option::none(), ctx(&mut sc));
+        clock::destroy_for_testing(clk);
+        ts::return_shared(v); ts::return_shared(areg);
+    };
+    // capture the agent cap id
+    next_tx(&mut sc, AGENT);
+    let acap = ts::take_from_sender<ExecCap>(&sc);
+    let acap_id = vault::test_exec_cap_id(&acap);
+    ts::return_to_sender(&sc, acap);
+    // guardian vetoes it
+    next_tx(&mut sc, ADMIN);
+    let gcap = ts::take_from_address<GuardianCap>(&sc, ADMIN);
+    {
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        vault::guardian_veto_agent(&mut v, &gcap, acap_id);
+        ts::return_shared(v);
+    };
+    ts::return_to_address(ADMIN, gcap);
     destroy(op); destroy(cur);
     ts::end(sc);
 }

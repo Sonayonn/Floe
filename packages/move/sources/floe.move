@@ -55,6 +55,7 @@ const EDepositUnsafe: u64 = 30;         // deposit blocked: NAV unverifiable/uns
 const ERedeemNotClaimable: u64 = 31;    // async claim before fulfill
 const ERedeemWrongVault: u64 = 32;      // ticket/vault mismatch
 const ERedeemNotFound: u64 = 33;        // request id not in queue
+const EGuardianWrongVault: u64 = 34;    // guardian cap / vault mismatch
 const MAX_DIVERGENCE_BPS: u64 = 500;    // 5% — attested NAV may not exceed lower bound by more
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -169,6 +170,10 @@ public struct Vault<phantom Q, phantom S> has key {
 public struct OwnerCap has key, store { id: UID, vault_id: ID }
 public struct CuratorCap has key, store { id: UID, vault_id: ID }
 public struct ExecCap has key, store { id: UID, vault_id: ID, mandate: Option<Mandate> }
+/// Emergency authority — separation of powers. A guardian (e.g. a security multisig,
+/// distinct from owner/curator) can HALT the vault unilaterally and veto an agent, but
+/// cannot govern or resume it (owner resumes). Minted at deploy, assigned by the curator.
+public struct GuardianCap has key, store { id: UID, vault_id: ID }
 
 // ─── Registries + treasury (shared, created in init) ─────────────────────────
 public struct VaultInfo has store, copy, drop {
@@ -203,6 +208,8 @@ public struct FeeAccrued has copy, drop { vault_id: ID, curator_shares: u64, pro
 public struct VaultDeployed has copy, drop { vault_id: ID, curator: address, name: vector<u8> }
 public struct AgentAuthorized has copy, drop { vault_id: ID, agent: address, agent_cap_id: ID, expiry_ms: u64, max_cycles: u64 }
 public struct AgentRevoked has copy, drop { vault_id: ID, agent_cap_id: ID }
+public struct GuardianHalted has copy, drop { vault_id: ID, guardian: ID }
+public struct GuardianVetoedAgent has copy, drop { vault_id: ID, agent_cap_id: ID }
 
 // ─── Init: create the three shared objects once at publish ───────────────────
 fun init(ctx: &mut TxContext) {
@@ -308,11 +315,13 @@ public fun deploy_vault<Q, S>(
     let owner_cap = OwnerCap { id: object::new(ctx), vault_id };
     let curator_cap = CuratorCap { id: object::new(ctx), vault_id };
     let exec_cap = ExecCap { id: object::new(ctx), vault_id, mandate: option::none() };
+    let guardian_cap = GuardianCap { id: object::new(ctx), vault_id };
 
     registry.vaults.push_back(VaultInfo { vault_id, curator, name, strategy_kind });
     event::emit(VaultDeployed { vault_id, curator, name });
 
     transfer::public_transfer(exec_cap, curator);
+    transfer::public_transfer(guardian_cap, curator);
     transfer::share_object(vault);
     (owner_cap, curator_cap)
 }
@@ -320,6 +329,9 @@ public fun deploy_vault<Q, S>(
 // ─── Cap assertions ──────────────────────────────────────────────────────────
 fun assert_owner<Q, S>(vault: &Vault<Q, S>, cap: &OwnerCap) {
     assert!(cap.vault_id == object::id(vault), EWrongVault);
+}
+fun assert_guardian<Q, S>(vault: &Vault<Q, S>, cap: &GuardianCap) {
+    assert!(cap.vault_id == object::id(vault), EGuardianWrongVault);
 }
 fun assert_curator_cap<Q, S>(vault: &Vault<Q, S>, cap: &CuratorCap) {
     assert!(cap.vault_id == object::id(vault), EWrongVault);
@@ -1068,6 +1080,26 @@ public fun register_enclave<Q, S>(vault: &mut Vault<Q, S>, cap: &OwnerCap, pcr_h
 public fun set_paused<Q, S>(vault: &mut Vault<Q, S>, cap: &OwnerCap, paused: bool) {
     assert_owner(vault, cap);
     vault.paused = paused;
+}
+
+// ─── Guardian emergency powers (separation of powers) ────────────────────────
+// Guardian can HALT unilaterally (fast, low-trust: a security multisig freezes the vault
+// the instant something looks wrong) but CANNOT resume — owner resumes via set_paused.
+// Bounds a compromised guardian key: freeze yes, un-freeze-then-attack no. Guardian can
+// also veto an agent immediately via the same kill-switch the curator uses (record_revoked).
+
+/// Guardian emergency halt: freezes the vault (sets paused). Owner resumes via set_paused.
+public fun guardian_halt<Q, S>(vault: &mut Vault<Q, S>, cap: &GuardianCap) {
+    assert_guardian(vault, cap);
+    vault.paused = true;
+    event::emit(GuardianHalted { vault_id: object::id(vault), guardian: object::id(cap) });
+}
+
+/// Guardian emergency veto of an agent's ExecCap — independent of the curator.
+public fun guardian_veto_agent<Q, S>(vault: &mut Vault<Q, S>, cap: &GuardianCap, agent_cap_id: ID) {
+    assert_guardian(vault, cap);
+    record_revoked(vault, agent_cap_id);
+    event::emit(GuardianVetoedAgent { vault_id: object::id(vault), agent_cap_id });
 }
 
 public fun set_deposits_frozen<Q, S>(vault: &mut Vault<Q, S>, cap: &OwnerCap, frozen: bool) {

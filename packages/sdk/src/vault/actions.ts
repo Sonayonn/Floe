@@ -101,3 +101,40 @@ export async function claimRedeem(
   if (res.effects?.status?.status !== 'success') throw new Error(`claim_redeem failed: ${res.effects?.status?.error}`);
   return res.digest;
 }
+
+
+/** Guardian emergency halt — freezes the vault (sets paused). Owner resumes via setPaused. */
+export async function guardianHalt(
+  floe: FloeClient,
+  o: { vaultId: string; guardianCap: string; types: [string, string] },
+): Promise<string> {
+  if (!floe.signer) throw new Error('guardianHalt requires a signer');
+  const a = floe.addresses;
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${a.package}::${a.module}::guardian_halt`,
+    typeArguments: o.types,
+    arguments: [tx.object(o.vaultId), tx.object(o.guardianCap)],
+  });
+  const res = await floe.sui.signAndExecuteTransaction({ signer: floe.signer, transaction: tx, options: { showEffects: true } });
+  if (res.effects?.status?.status !== 'success') throw new Error(`guardian_halt failed: ${res.effects?.status?.error}`);
+  return res.digest;
+}
+
+/** Guardian emergency veto of an agent's ExecCap — independent of the curator (kill-switch). */
+export async function guardianVetoAgent(
+  floe: FloeClient,
+  o: { vaultId: string; guardianCap: string; agentCapId: string; types: [string, string] },
+): Promise<string> {
+  if (!floe.signer) throw new Error('guardianVetoAgent requires a signer');
+  const a = floe.addresses;
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${a.package}::${a.module}::guardian_veto_agent`,
+    typeArguments: o.types,
+    arguments: [tx.object(o.vaultId), tx.object(o.guardianCap), tx.pure.id(o.agentCapId)],
+  });
+  const res = await floe.sui.signAndExecuteTransaction({ signer: floe.signer, transaction: tx, options: { showEffects: true } });
+  if (res.effects?.status?.status !== 'success') throw new Error(`guardian_veto_agent failed: ${res.effects?.status?.error}`);
+  return res.digest;
+}
