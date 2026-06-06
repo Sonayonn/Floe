@@ -133,7 +133,7 @@ export class StratosStrategy implements Strategy {
       const haveAtExpiry = state.openPositions.some((pos) => pos.oracleId === target.oracleId);
       const freeCapital = Math.max(state.idle - 0, 0); // idle not earmarked for PLP gap
       if (!haveAtExpiry && freeCapital > 0) {
-        const band = oneSigmaRange(target, p.rangeSigmas);
+        const band = oneSigmaRange(target, p.rangeSigmas, state.nowMs);
         const size = freeCapital * p.rangeCapitalFraction;
         if (size > 0) {
           actions.push({

@@ -46,8 +46,8 @@ export interface RangeBand {
   sigmaMove: number;
 }
 
-export function oneSigmaRange(point: SurfacePoint, sigmas = 1): RangeBand {
-  const tauYears = Math.max((point.expiryMs - Date.now()) / MS_PER_YEAR, 1e-9);
+export function oneSigmaRange(point: SurfacePoint, sigmas = 1, nowMs: number = Date.now()): RangeBand {
+  const tauYears = Math.max((point.expiryMs - nowMs) / MS_PER_YEAR, 1e-9);
   const move = point.impliedVol * Math.sqrt(tauYears) * sigmas;
 
   const rawLower = point.forward * Math.exp(-move);

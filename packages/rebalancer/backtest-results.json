@@ -1,0 +1,91 @@
+{
+  "generatedAt": "2026-06-06T19:07:03.327Z",
+  "config": {
+    "days": 365,
+    "rebalanceEveryDays": 1,
+    "initialNav": 1000000,
+    "initialSpot": 65000,
+    "baseIv": 0.55,
+    "plpApr": 0.08,
+    "lpEdgeBps": 150,
+    "feeMgmtBps": 200,
+    "feePerfBps": 2000
+  },
+  "pathsPerRegime": 1000,
+  "model": "Merton jump-diffusion (GBM + Poisson lognormal jumps)",
+  "note": "Drives the real StratosStrategy.decide(); premium SVI-consistent; tail shown not hidden.",
+  "regimes": [
+    {
+      "regime": "bull",
+      "paths": 1000,
+      "medianReturnPct": 55.14652505488791,
+      "p5ReturnPct": 34.037915286403475,
+      "p95ReturnPct": 72.48672472983904,
+      "meanReturnPct": 54.45999219773405,
+      "sharpe": 4.442899603545378,
+      "sortino": 99,
+      "calmar": 8.077278782796576,
+      "maxDrawdownPct": 6.742368768269566,
+      "var95Pct": 34.037915286403475,
+      "inRangeRatePct": 92.0334228588481,
+      "winRatePct": 100,
+      "skew": -0.5990018905286729,
+      "kurtosis": 0.7407370276632061
+    },
+    {
+      "regime": "bear",
+      "paths": 1000,
+      "medianReturnPct": 56.25136818847434,
+      "p5ReturnPct": 30.894038085248667,
+      "p95ReturnPct": 75.02637262932386,
+      "meanReturnPct": 54.7348941934971,
+      "sharpe": 3.963144546988379,
+      "sortino": 18.40522759203639,
+      "calmar": 7.046356433298999,
+      "maxDrawdownPct": 7.767829333020419,
+      "var95Pct": 30.894038085248667,
+      "inRangeRatePct": 91.04434208077424,
+      "winRatePct": 99.9,
+      "skew": -0.5202886403213036,
+      "kurtosis": 0.2840815511214343
+    },
+    {
+      "regime": "chop",
+      "paths": 1000,
+      "medianReturnPct": 53.42870908983159,
+      "p5ReturnPct": 40.338874051439944,
+      "p95ReturnPct": 61.98401648197682,
+      "meanReturnPct": 52.867345813964164,
+      "sharpe": 7.868234044950031,
+      "sortino": 99,
+      "calmar": 15.234016493050925,
+      "maxDrawdownPct": 3.470348469038344,
+      "var95Pct": 40.338874051439944,
+      "inRangeRatePct": 96.09670141901724,
+      "winRatePct": 100,
+      "skew": -0.8058207740326848,
+      "kurtosis": 1.0409766963812226
+    },
+    {
+      "regime": "crash",
+      "paths": 1000,
+      "medianReturnPct": 36.30105602177505,
+      "p5ReturnPct": -1.603350824215788,
+      "p95ReturnPct": 75.63824469108866,
+      "meanReturnPct": 36.87738329735322,
+      "sharpe": 1.556290770167899,
+      "sortino": 3.167449070273946,
+      "calmar": 2.3563681159246204,
+      "maxDrawdownPct": 15.650094332940347,
+      "var95Pct": -1.603350824215788,
+      "inRangeRatePct": 84.64327888725167,
+      "winRatePct": 94,
+      "skew": 0.04105878911965429,
+      "kurtosis": -0.09066899895069325
+    }
+  ],
+  "blended": {
+    "medianReturnPct": 50.281914588742225,
+    "avgInRangePct": 90.9544363114728
+  }
+}
