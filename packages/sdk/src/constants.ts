@@ -16,7 +16,7 @@ export const FLOE_ADDRESSES = {
     // Attestation — the moat (Nautilus hardware-attested NAV + vol)
     nav: {
       packageOriginal: '0xc9bae1737b1744108491f6c4d7c87128520d6b61151d9e3bc23c262cbc0026e0',
-      package:         '0x61068e2d7c4648bd2f5d13f5474f83f35ff9e20da3d155806b30b7c2e15b16a9', // V3 (Verifiable Valuation: nav+vol+collateral)
+      package:         '0x07677cefab304e5d27d8e2dc4aed20a6ef0f9b8bbadf25de67f61a574a658d7a', // V3 (Verifiable Valuation: nav+vol+collateral)
       module:          'floe_nav',
       enclavePackage:  '0x8ecf22e78c90c3e32833d76d82415d7e4227ea370bec4efdad4c4830cbda9e49',
       cap:             '0xe84af0541528abaa11123a2b5a9c9cbee0c4ac18104c4ca3f1a6b3050cb72c9f',

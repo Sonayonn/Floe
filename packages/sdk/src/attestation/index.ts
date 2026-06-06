@@ -126,3 +126,41 @@ export function verifyCollateral(
     subjectId: args.assetId, timestampMs: args.timestampMs, signatureHex: args.signatureHex,
   });
 }
+
+
+/** Verify an enclave-signed RiskPayload (intent 4) — attested PLP/vault risk posture.
+ *  3 risk metrics + subject vault, so it builds the tx directly (the shared verify() helper
+ *  is fixed at 2 u64s). Returns the tx digest; aborts on-chain if the signature is invalid. */
+export function verifyRiskAttested(
+  floe: FloeClient,
+  args: {
+    utilizationBps: bigint; maxExposureBps: bigint; worstCaseDrawdownBps: bigint;
+    subjectId: string; timestampMs: bigint; signatureHex: string;
+  },
+): Promise<string> {
+  if (!floe.signer) throw new Error('verify_risk_attested requires a signer');
+  const n = floe.addresses.nav;
+  const sig = Array.from(fromHex(args.signatureHex.replace(/^0x/, '')));
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${n.package}::${n.module}::verify_risk_attested`,
+    typeArguments: [n.otwType],
+    arguments: [
+      tx.object(n.enclave),
+      tx.pure.u64(args.utilizationBps),
+      tx.pure.u64(args.maxExposureBps),
+      tx.pure.u64(args.worstCaseDrawdownBps),
+      tx.pure.address(args.subjectId),
+      tx.pure.u64(args.timestampMs),
+      tx.pure.vector('u8', sig),
+    ],
+  });
+  return floe.sui.signAndExecuteTransaction({
+    signer: floe.signer, transaction: tx, options: { showEffects: true },
+  }).then((res) => {
+    if (res.effects?.status?.status !== 'success') {
+      throw new Error(`verify_risk_attested rejected: ${res.effects?.status?.error ?? 'unknown'}`);
+    }
+    return res.digest;
+  });
+}

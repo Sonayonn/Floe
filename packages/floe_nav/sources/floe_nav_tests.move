@@ -56,3 +56,20 @@ fun test_collateral_payload_serde() {
     assert!(bytes.length() == 57, 3);
 }
 
+/// RiskPayload (intent 4) — attested PLP/vault risk posture. Distinct intent so a
+/// nav/vol/collateral signature can never be replayed as a risk attestation.
+#[test]
+fun test_risk_payload_serde() {
+    let scope: u8 = 4;            // RISK_INTENT
+    let timestamp: u64 = 1744038900000;
+    let subject_id = @0xCAFE;
+    let utilization_bps: u64 = 6500;
+    let max_exposure_bps: u64 = 3000;
+    let worst_case_drawdown_bps: u64 = 1200;
+    let payload = floe_nav::new_risk_payload(subject_id, utilization_bps, max_exposure_bps, worst_case_drawdown_bps);
+    let intent_message = enclave::create_intent_message(scope, timestamp, payload);
+    let bytes = bcs::to_bytes(&intent_message);
+    // intent(1) + timestamp(8) + subject_id(32) + utilization(8) + max_exposure(8) + drawdown(8) = 65 bytes
+    assert!(bytes.length() == 65, 4);
+    assert!(bytes[0] == 4, 5);   // intent distinct from 1/2/3
+}

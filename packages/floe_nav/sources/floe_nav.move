@@ -13,6 +13,7 @@
 ///   - NavPayload        (intent 1) — a vault's net asset value          [Floe's flagship use]
 ///   - VolPayload        (intent 2) — an on-chain implied-vol index
 ///   - CollateralPayload (intent 3) — illiquid collateral valuation       [a 3rd-party use case]
+///   - RiskPayload       (intent 4) — a vault's attested PLP/risk posture  [provable 'is PLP safe?']
 ///
 /// Pattern follows Mysten's weather-example: an OTW + EnclaveConfig (PCRs) created at
 /// init, and verify via enclave::verify_signature over a BCS payload that must match
@@ -44,6 +45,7 @@ const NAV_INTENT: u8 = 1;
 /// Intent byte for VOL attestations (distinct domain separator).
 const VOL_INTENT: u8 = 2;
 const COLLATERAL_INTENT: u8 = 3;  // 3rd-party use case: illiquid collateral valuation
+const RISK_INTENT: u8 = 4;        // attested PLP/vault risk posture (answers 'is PLP safe?')
 
 const EBadEnclaveSig: u64 = 0;
 
@@ -132,6 +134,39 @@ public fun verify_collateral_attested<T>(
     );
     assert!(ok, EBadEnclaveSig);
     (value, ltv_bps)
+}
+
+// ─── Reference consumer #4: attested PLP/vault risk posture (Floe Guard) ──────
+// The problem the category cares about: "is PLP safe?" gates serious LP TVL. A dashboard
+// DISPLAYS risk; this PROVES it. The enclave signs the vault's risk state — utilization,
+// largest single exposure, and modeled worst-case drawdown — so an outside LP can verify
+// the vault's risk posture is within attested bounds cryptographically, not on trust.
+public struct RiskPayload has copy, drop {
+    subject_id: address,           // the vault being risk-attested
+    utilization_bps: u64,          // % of vault value deployed (vs idle)
+    max_exposure_bps: u64,         // largest single-oracle/position exposure
+    worst_case_drawdown_bps: u64,  // modeled worst-case loss (e.g. ±5sigma)
+}
+
+public fun new_risk_payload(subject_id: address, utilization_bps: u64, max_exposure_bps: u64, worst_case_drawdown_bps: u64): RiskPayload {
+    RiskPayload { subject_id, utilization_bps, max_exposure_bps, worst_case_drawdown_bps }
+}
+
+public fun verify_risk_attested<T>(
+    enclave: &Enclave<T>,
+    utilization_bps: u64,
+    max_exposure_bps: u64,
+    worst_case_drawdown_bps: u64,
+    subject_id: address,
+    timestamp_ms: u64,
+    signature: vector<u8>,
+): (u64, u64, u64) {
+    let payload = RiskPayload { subject_id, utilization_bps, max_exposure_bps, worst_case_drawdown_bps };
+    let ok = enclave::verify_signature<T, RiskPayload>(
+        enclave, RISK_INTENT, timestamp_ms, payload, &signature,
+    );
+    assert!(ok, EBadEnclaveSig);
+    (utilization_bps, max_exposure_bps, worst_case_drawdown_bps)
 }
 
 public fun new_collateral_payload(asset_id: address, value: u64, ltv_bps: u64): CollateralPayload {
