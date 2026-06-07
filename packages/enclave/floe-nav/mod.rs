@@ -19,6 +19,8 @@ use std::sync::Arc;
 #[repr(u8)]
 pub enum IntentScope {
     Nav = 1,
+    Vol = 2,
+    Risk = 4,
 }
 
 /// The signed NAV payload. Field order + types MUST match NavPayload in floe_nav.move.
@@ -40,6 +42,39 @@ pub struct NavRequest {
     pub plp_price: u64,
 }
 
+// ─── Vol payload (intent 2) — matches floe_nav.move VolPayload ────────────────
+// VolPayload = oracle_id(address,32) + vol_bps(u64,8) + spot(u64,8) = 57 bytes.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VolPayload {
+    pub oracle_id: [u8; 32],
+    pub vol_bps: u64,
+    pub spot: u64,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VolRequest {
+    pub oracle_id: [u8; 32],
+    pub vol_bps: u64,
+    pub spot: u64,
+}
+
+// ─── Risk payload (intent 4) — matches floe_nav.move RiskPayload ──────────────
+// RiskPayload = subject_id(address,32) + utilization_bps(8) + max_exposure_bps(8)
+//             + worst_case_drawdown_bps(8) = 65 bytes.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RiskPayload {
+    pub subject_id: [u8; 32],
+    pub utilization_bps: u64,
+    pub max_exposure_bps: u64,
+    pub worst_case_drawdown_bps: u64,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RiskRequest {
+    pub subject_id: [u8; 32],
+    pub utilization_bps: u64,
+    pub max_exposure_bps: u64,
+    pub worst_case_drawdown_bps: u64,
+}
+
 pub async fn process_data(
     State(state): State<Arc<AppState>>,
     Json(request): Json<ProcessDataRequest<NavRequest>>,
@@ -58,6 +93,52 @@ pub async fn process_data(
         NavPayload { vault_id: r.vault_id, nav: r.nav, plp_price: r.plp_price },
         timestamp_ms,
         IntentScope::Nav as u8,
+    )))
+}
+
+/// Attest a volatility reading (intent 2). The rebalancer computes vol_bps + spot from the
+/// on-chain SVI oracle; the enclave signs it so floe_vol/floe_nav can verify on-chain.
+pub async fn sign_vol(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ProcessDataRequest<VolRequest>>,
+) -> Result<Json<ProcessedDataResponse<IntentMessage<VolPayload>>>, EnclaveError> {
+    let r = request.payload;
+    if r.vol_bps == 0 || r.spot == 0 {
+        return Err(EnclaveError::GenericError("vol/spot must be non-zero".to_string()));
+    }
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| EnclaveError::GenericError(format!("clock: {e}")))?
+        .as_millis() as u64;
+    Ok(Json(to_signed_response(
+        &state.eph_kp,
+        VolPayload { oracle_id: r.oracle_id, vol_bps: r.vol_bps, spot: r.spot },
+        timestamp_ms,
+        IntentScope::Vol as u8,
+    )))
+}
+
+/// Attest a vault's risk posture (intent 4) — utilization, max exposure, worst-case drawdown.
+/// The cryptographic answer to "is PLP safe?": an LP can verify the risk bounds on-chain.
+pub async fn sign_risk(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ProcessDataRequest<RiskRequest>>,
+) -> Result<Json<ProcessedDataResponse<IntentMessage<RiskPayload>>>, EnclaveError> {
+    let r = request.payload;
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| EnclaveError::GenericError(format!("clock: {e}")))?
+        .as_millis() as u64;
+    Ok(Json(to_signed_response(
+        &state.eph_kp,
+        RiskPayload {
+            subject_id: r.subject_id,
+            utilization_bps: r.utilization_bps,
+            max_exposure_bps: r.max_exposure_bps,
+            worst_case_drawdown_bps: r.worst_case_drawdown_bps,
+        },
+        timestamp_ms,
+        IntentScope::Risk as u8,
     )))
 }
 

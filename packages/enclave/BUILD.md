@@ -30,3 +30,14 @@ PCR0=PCR1=489fdb1bc0d496fdf94ea06adb1f970a3a429cbcc31375d3af552b155bbcda81326833
 PCR2=21b9efbc184807662e966d34f390821309eeac6802309798826296bf3e8bec7c10edb30948c90ba67310f7b964fc500a
 Live Enclave object: 0x3d2ba31849f5f2c916b812a987404554aa819e56e8da5939089327375d0cb496
 Enclave attester pubkey: 69f23b336bf6fecc943491fda61f11d774d7b85d1ede25935ff8d73734abbac1
+
+## Update — Vol(intent2)+Risk(intent4) signers (rebuild, PCR 1397e62d)
+Added /sign_vol (VolPayload intent 2, 57B) + /sign_risk (RiskPayload intent 4, 65B) to the
+enclave signer. Binary changed => PCR 489fdb1b -> 1397e62d, reproducible from committed
+mod.rs + main.rs patch. Re-registered EnclaveConfig 0x34e27a1b.
+PCR0=PCR1=1397e62dfb6b9d0f06e352d30e3b183699f0fde28beacd7ee68f4619701c2680dd30624ba9d3cd6490d4d9ab873dfd6f
+PCR2=21b9efbc184807662e966d34f390821309eeac6802309798826296bf3e8bec7c10edb30948c90ba67310f7b964fc500a
+Live Enclave object: 0x0f6def7875e18c18611de571b262df95d2d9a5d85b35ab56f93e4f2d2a31aa2d
+Enclave attester pubkey: f068812694d6dfd26f9d9b29ad325d38e334bfe2ad90e1bb1eee7c3da87f058c
+floe_vol (byte-order fix: intent||timestamp||payload): 0xb94fb487c4e3068869c0f1d2b7df013aba7d15fcbabbe0834d966bc546ae2c10
+P2 vol live: BVvtGdrq... | P1 risk live: i3syjS74... | tamper rejected on both.

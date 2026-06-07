@@ -160,12 +160,14 @@ public fun update_vol_attested(
     let now = clock.timestamp_ms();
     assert!(timestamp_ms <= now && now - timestamp_ms <= VOL_FRESH_WINDOW_MS, EStaleVolAttestation);
 
-    // reconstruct the signed message: intent || oracle_id || vol_bps || spot || timestamp_ms
+    // reconstruct the signed message EXACTLY as the enclave's create_intent_message does:
+    // BCS(IntentMessage{intent, timestamp, payload}) = intent(1) || timestamp(8) || payload.
+    // (timestamp comes BEFORE the payload fields — must match enclave::verify_signature.)
     let mut msg = vector<u8>[VOL_INTENT];
+    msg.append(bcs::to_bytes(&timestamp_ms));
     msg.append(bcs::to_bytes(&oracle_id));
     msg.append(bcs::to_bytes(&vol_bps));
     msg.append(bcs::to_bytes(&spot));
-    msg.append(bcs::to_bytes(&timestamp_ms));
 
     let pubkey = df::borrow<VolAttesterKey, vector<u8>>(&index.id, VolAttesterKey {});
     assert!(ed25519::ed25519_verify(&signature, pubkey, &msg), EBadVolAttestation);

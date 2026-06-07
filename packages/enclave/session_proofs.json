@@ -1,49 +1,22 @@
-[
-  {
-    "step": "1_plp_heartbeat",
-    "enclave_pubkey": "69f23b336bf6fecc943491fda61f11d774d7b85d1ede25935ff8d73734abbac1",
-    "pcr0": "489fdb1bc0d496fdf94ea06adb1f970a3a429cbcc31375d3af552b155bbcda81326833fec25a08ae058ce8e50caf5fa3",
-    "vault": "0xea33fe41c7512a1a36be417b0ce400ada0db0d9fe54f2ade75662aaef987de2e",
-    "update_nav_attested_tx": "5R73X6Da3eb4nyarV1cg7y8X4MmuihgGpo7uE3arUaSj",
-    "plp_price": 1002000,
-    "timestamp_ms": 1780669791112,
-    "result": "fresh=true attested=true; badge degraded-divergent (correct: unsettled marks); pctCertain 28%"
+{
+  "session": "P2+P1 batched enclave bring-up — full Verifiable Valuation family live",
+  "date": "2026-06-07",
+  "enclave": {
+    "pcr0_pcr1": "1397e62dfb6b9d0f06e352d30e3b183699f0fde28beacd7ee68f4619701c2680dd30624ba9d3cd6490d4d9ab873dfd6f",
+    "pcr2": "21b9efbc184807662e966d34f390821309eeac6802309798826296bf3e8bec7c10edb30948c90ba67310f7b964fc500a",
+    "enclave_object": "0x0f6def7875e18c18611de571b262df95d2d9a5d85b35ab56f93e4f2d2a31aa2d",
+    "attester_pubkey": "f068812694d6dfd26f9d9b29ad325d38e334bfe2ad90e1bb1eee7c3da87f058c",
+    "floe_vol_package": "0xb94fb487c4e3068869c0f1d2b7df013aba7d15fcbabbe0834d966bc546ae2c10"
   },
-  {
-    "step": "2_circuit_breaker_demo",
-    "act1_deposit_blocked": "EDepositUnsafe (MoveAbort) \u2014 breaker refused mint against unverifiable NAV",
-    "act1_withdraw_at_floor_tx": "2NQCQRfX6h8YLSvKJyTsy17ppdM4FJvGV1qZGmEF1foi",
-    "act1_navguard_event": {
-      "full_nav": 7504008,
-      "lower_bound": 2104008,
-      "reason": 2
-    },
-    "act2_settle_tx": [
-      "D1K9VcEkwz25WCaL9Z1mMotAGWrjPETfJBhRvkqNDPns",
-      "mye7hKag6GQ5xYxHMnZgA1g4ewnAbFfaUDf1nTbd6H8"
-    ],
-    "act2_deposit_permitted_tx": "5w6r9yDBxqsGzj6x3iFC8vH7aMPYW6vAXd3UnttKqfxv",
-    "result": "breaker PROTECTS when divergent (deposit blocked, withdraw at floor), PERMITS after settlement"
+  "proofs": {
+    "update_pcrs": "87DhFedVNoFkrVRoVe4YnKjXrx8PLhonxr1FkRCvfYkV",
+    "register_enclave": "J4u4DfL3GWsDKH3fRuYPGTsAFvR2cnyC7gTyViWK1jWG",
+    "register_attester": "6bUAdzrvee4veXNxWgmbih64pn96BuGmwCE1R4Lq54tc",
+    "register_vol_attester": "EzcnqoSKBaNPGWLBdTr5DADtthSjmhm8rFv9FurAdGFH",
+    "P2_vol_attested_valid": "BVvtGdrqgMEestz8Wr67oiq33mm1RcbiwZNVP6hBdmVb",
+    "P2_vol_tampered_rejected": "MoveAbort 102 EBadVolAttestation",
+    "P1_risk_attested_valid": "i3syjS74FAvzt5hxvwKaQhkJMtx7cppJpARKHgHn49Y",
+    "P1_risk_tampered_rejected": "MoveAbort EBadEnclaveSig"
   },
-  {
-    "step": "3_attested_track_record",
-    "snapshots_signed": 3,
-    "blob_navs": [
-      7510000,
-      7600000,
-      7700000
-    ],
-    "attested_era_since_ms": 1780672000000,
-    "verifyTrackRecord_result": "6 points, all verified on-chain (verify_nav), 100% attested coverage, avg pctCertain 100%",
-    "return_pct": 2.53,
-    "apr": "n/a \u2014 window < 1 day (annualization guard; honest, not absurd)",
-    "note": "real enclave signatures re-verified on-chain; APR guard prevents degenerate annualization"
-  },
-  {
-    "step": "4_verify_nav_tier3_live",
-    "enclave_object": "0x3d2ba31849f5f2c916b812a987404554aa819e56e8da5939089327375d0cb496",
-    "valid_accepted_tx": "ExaVWcAAgWgg2dM2erJ32kHEsm6wUYh61AyJrenkLQ9o",
-    "tampered_result": "REJECTED (MoveAbort EBadEnclaveSig)",
-    "result": "Tier-3 floe_nav primitive proven live on new enclave: valid sig accepted, tampered rejected"
-  }
-]
+  "attested_vol_readback": { "vol_bps": 5500, "spot": 65000000000000, "fresh": true }
+}
