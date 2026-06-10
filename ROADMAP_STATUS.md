@@ -264,3 +264,32 @@ DOC-REQUIRED: [R1] redeem_permissionless integration (real fund recovery). [R2] 
 backtest (HARD REQUIREMENT per "minimum requirement: proper simulation result").
 FRONTEND [F]: Earn dir + Surface Studio + hybrid-withdrawal UX + predict-server indexer.
 SEQUENCING: A -> B -> #5 -> R1+P4 -> P2 -> P1 -> R2 -> P3 -> F. All primitives ship WITH SDK.
+
+## P3 — Floe Lend (attested-collateral money market) ✓ SHIPPED
+
+A standalone isolated lending market (Aave-V3 / Suilend model): index-based interest accrual,
+two-slope kinked utilization rate, supply / withdraw / borrow / repay / liquidate, liquidation
+bonus. ONE collateral asset per pool (isolated-market best practice).
+
+THE INNOVATION — attested collateral valuation (the integrity gap, closed). Collateral is a Floe
+vault SHARE, valued at the vault's ENCLAVE-ATTESTED NAV LOWER BOUND. lock_and_borrow consumes an
+ed25519 CollateralPayload (intent 3) the contract SELF-VERIFIES (the floe_vol pattern — sui::ed25519,
+no external package dependency). A borrower CANNOT forge the value. Liquidations run on a
+cryptographically-certified, fresh, un-inflatable value — no market-oracle manipulation possible.
+This is the lending market that REMOVED the oracle trust assumption.
+
+- Package (testnet): 0x5135151fc146fff78fe52845d683e355453e86d1ae1d5adb5d6b19a3c878b992
+- LendAdminCap: 0x814292c8ba43a489032e162ba2dc642eb01f35aec9752d1ecbe293c9eb3dfaa9
+- UpgradeCap:   0x90f9c8dd12a9ea47b95ac193918ca78d4754cf506e62d6e87ac0566fd34fad72
+- Decoupled by design: ZERO deps (only Sui framework). Generic over <Q, S>. Valuation arrives as
+  a signed attestation param, not a vault import — so ANY attested vault's SHARE can be collateral.
+- Tests: 5/5 (supply/withdraw, rate curve, attested borrow VALID, forged-sig REJECTED, over-LTV REJECTED).
+  The forged-sig rejection PROVES the integrity gap is closed on-chain.
+- SDK: FloeLend namespace (create_pool, supply, supply_more, withdraw, lock_and_borrow, repay,
+  liquidate, register_collateral_attester, poolState, fetchSignedValuation, borrowAndTradePredict).
+  sdk:verify green — every entry resolves on the live package.
+
+PENDING (before live end-to-end demo):
+- Enclave /sign_collateral handler (intent-3) — code-only write next, signed-live in a batched
+  EC2 session. Contract + SDK + byte layout already proven correct by the on-chain test vector.
+- borrowAndTradePredict: Predict open_position entry ABI pinned when Predict instance finalizes.

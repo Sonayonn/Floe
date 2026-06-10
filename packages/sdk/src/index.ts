@@ -17,6 +17,7 @@ import * as agent from './agent/index.ts';
 import * as walrus from './walrus/index.ts';
 import * as trackRecord from './track-record/index.ts';
 import * as seal from './seal/index.ts';
+import * as lend from './lend/index.ts';
 
 /** Vault reads + (later) actions. */
 export const FloeVault = { ...vaultRead, ...vaultDeploy, ...vaultActions, ...vaultSelfHeal };
@@ -30,6 +31,8 @@ export const Policy = { ...policyCfg };
 export const Fees = { ...feesCfg };
 /** On-chain implied-volatility index (DeepBook Predict SVI oracle). */
 export const Vol = { ...vol };
+
+export const FloeLend = { ...lend };
 /** Verifiable NAV + vol — the Nautilus hardware-attestation moat. */
 export const Attestation = { ...attestation };
 /** Attenuated, revocable agent authority over a vault. */

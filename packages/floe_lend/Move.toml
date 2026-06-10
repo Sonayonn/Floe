@@ -1,0 +1,8 @@
+[package]
+name = "floe_lend"
+edition = "2024"
+
+[dependencies]
+
+[addresses]
+floe_lend = "0x0"

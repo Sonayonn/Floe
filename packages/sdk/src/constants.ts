@@ -1,5 +1,5 @@
 /** Floe protocol version (semantic). 0.x = pre-mainnet; 1.0.0 reserved for mainnet launch. */
-export const FLOE_VERSION = '0.12.0';
+export const FLOE_VERSION = '0.13.0';
 
 /** Floe canonical on-chain addresses (testnet). Single source of truth — the SDK
  *  and any "build on Floe" consumer reference these, never hardcoded literals. */
@@ -34,6 +34,18 @@ export const FLOE_ADDRESSES = {
       package:  '0xb94fb487c4e3068869c0f1d2b7df013aba7d15fcbabbe0834d966bc546ae2c10',
       module:   'floe_vol_index',
       volIndex: '0x114b2934a04bb9e063bc368ffd6cba06fd821dd54edadd48e5e118e7b57f119a',
+    },
+
+    // Floe Lend — attested-collateral money market (SHARE as productive collateral)
+    lend: {
+      package:           '0x5135151fc146fff78fe52845d683e355453e86d1ae1d5adb5d6b19a3c878b992',
+      module:            'floe_lend',
+      collateralIntent:  3,     // CollateralPayload — same intent as floe_nav
+      // reuses the LIVE enclave attester (proved on Nitro HW). register on each pool.
+      attesterPubkey:    'f068812694d6dfd26f9d9b29ad325d38e334bfe2ad90e1bb1eee7c3da87f058c',
+      valuationFreshMs:  600000, // 10-min window (matches VALUATION_FRESH_MS)
+      adminCap:          '0x814292c8ba43a489032e162ba2dc642eb01f35aec9752d1ecbe293c9eb3dfaa9',
+      upgradeCap:        '0x90f9c8dd12a9ea47b95ac193918ca78d4754cf506e62d6e87ac0566fd34fad72',
     },
 
     // DeepBook Predict (flagship venue + the vol oracle source)
