@@ -20,6 +20,7 @@ use std::sync::Arc;
 pub enum IntentScope {
     Nav = 1,
     Vol = 2,
+    Collateral = 3,
     Risk = 4,
 }
 
@@ -75,6 +76,21 @@ pub struct RiskRequest {
     pub worst_case_drawdown_bps: u64,
 }
 
+// ─── Collateral payload (intent 3) — matches floe_lend.move verify_and_price ──
+// CollateralPayload = vault_id(address,32) + nav_lower_bound(u64,8) + share_supply(u64,8) = 57 bytes.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CollateralPayload {
+    pub vault_id: [u8; 32],
+    pub nav_lower_bound: u64,
+    pub share_supply: u64,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CollateralRequest {
+    pub vault_id: [u8; 32],
+    pub nav_lower_bound: u64,
+    pub share_supply: u64,
+}
+
 pub async fn process_data(
     State(state): State<Arc<AppState>>,
     Json(request): Json<ProcessDataRequest<NavRequest>>,
@@ -115,6 +131,29 @@ pub async fn sign_vol(
         VolPayload { oracle_id: r.oracle_id, vol_bps: r.vol_bps, spot: r.spot },
         timestamp_ms,
         IntentScope::Vol as u8,
+    )))
+}
+
+/// Attest a collateral valuation (intent 3). The SDK reads the vault's nav_lower_bound +
+/// share_supply on-chain and sends them here; the enclave signs the CollateralPayload so
+/// floe_lend::verify_and_price can self-verify it (the borrower cannot forge the value).
+pub async fn sign_collateral(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ProcessDataRequest<CollateralRequest>>,
+) -> Result<Json<ProcessedDataResponse<IntentMessage<CollateralPayload>>>, EnclaveError> {
+    let r = request.payload;
+    if r.nav_lower_bound == 0 || r.share_supply == 0 {
+        return Err(EnclaveError::GenericError("nav/supply must be non-zero".to_string()));
+    }
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| EnclaveError::GenericError(format!("clock: {e}")))?
+        .as_millis() as u64;
+    Ok(Json(to_signed_response(
+        &state.eph_kp,
+        CollateralPayload { vault_id: r.vault_id, nav_lower_bound: r.nav_lower_bound, share_supply: r.share_supply },
+        timestamp_ms,
+        IntentScope::Collateral as u8,
     )))
 }
 

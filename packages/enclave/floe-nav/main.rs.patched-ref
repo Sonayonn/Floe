@@ -11,6 +11,8 @@ use nautilus_server::app::sign_heartbeat;
 use nautilus_server::app::sign_vol;
 #[cfg(feature = "floe-nav")]
 use nautilus_server::app::sign_risk;
+#[cfg(feature = "floe-nav")]
+use nautilus_server::app::sign_collateral;
 use nautilus_server::common::{get_attestation, health_check};
 use nautilus_server::AppState;
 use std::sync::Arc;
@@ -50,6 +52,7 @@ async fn main() -> Result<()> {
         .route("/sign_heartbeat", post(sign_heartbeat))
         .route("/sign_vol", post(sign_vol))
         .route("/sign_risk", post(sign_risk))
+        .route("/sign_collateral", post(sign_collateral))
         .route("/health_check", get(health_check))
         .with_state(state)
         .layer(cors);
