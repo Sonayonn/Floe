@@ -21,12 +21,12 @@ export const FLOE_ADDRESSES = {
       enclavePackage:  '0x8ecf22e78c90c3e32833d76d82415d7e4227ea370bec4efdad4c4830cbda9e49',
       cap:             '0xe84af0541528abaa11123a2b5a9c9cbee0c4ac18104c4ca3f1a6b3050cb72c9f',
       enclaveConfig:   '0x34e27a1bb7034cc6734c59b631e2362ef5515cd9d139871d8653c584825b7402',
-      enclave:         '0x0f6def7875e18c18611de571b262df95d2d9a5d85b35ab56f93e4f2d2a31aa2d', // new (489fdb1b enclave)
+      enclave:         '0x23f37e2f2f642d1e1c11c1cb94ab98156b1a8943d28775dac62a4ea4a24783fd', // live (b4d53224 enclave — +sign_collateral)
       otwType:         '0xc9bae1737b1744108491f6c4d7c87128520d6b61151d9e3bc23c262cbc0026e0::floe_nav::FLOE_NAV',
       navIntent: 1,
       volIntent: 2,
       collateralIntent: 3,
-      pcr0: '6ee108f6896926ab3dc1ee0edd3c1fdec1a48e958cc4a168d3ef3fb75f5f80181eeb0ee8c96cd466644cd7a81155df8a',
+      pcr0: 'b4d532247e4750b239548897063dba140995db04529f9aceea5936f139f2c031e43871b1b69418d86822e72b0f0d6cab',
     },
 
     // On-chain implied-volatility index (from DeepBook Predict SVI oracle)
@@ -46,6 +46,7 @@ export const FLOE_ADDRESSES = {
       valuationFreshMs:  600000, // 10-min window (matches VALUATION_FRESH_MS)
       adminCap:          '0x814292c8ba43a489032e162ba2dc642eb01f35aec9752d1ecbe293c9eb3dfaa9',
       upgradeCap:        '0x90f9c8dd12a9ea47b95ac193918ca78d4754cf506e62d6e87ac0566fd34fad72',
+      refPool:           '0x7c929f24cb579c7c86fec0b29f8b1496a7f4f565e3e6755b5136bca2f81754a7', // live Stratos<DUSDC,SHARE> pool
     },
 
     // DeepBook Predict (flagship venue + the vol oracle source)

@@ -10,7 +10,7 @@ const APP_PKG = '0xc9bae1737b1744108491f6c4d7c87128520d6b61151d9e3bc23c262cbc002
 const CONFIG = '0x34e27a1bb7034cc6734c59b631e2362ef5515cd9d139871d8653c584825b7402';
 const OTW = `${APP_PKG}::floe_nav::FLOE_NAV`;
 
-const att = JSON.parse(readFileSync('../enclave/attestation.json', 'utf8')).attestation;
+const att = JSON.parse(readFileSync('../enclave/attestation_lend.json', 'utf8')).attestation;
 const attBytes = Array.from(fromHex(att));
 console.log('attestation bytes:', attBytes.length);
 

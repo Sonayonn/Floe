@@ -41,3 +41,23 @@ Live Enclave object: 0x0f6def7875e18c18611de571b262df95d2d9a5d85b35ab56f93e4f2d2
 Enclave attester pubkey: f068812694d6dfd26f9d9b29ad325d38e334bfe2ad90e1bb1eee7c3da87f058c
 floe_vol (byte-order fix: intent||timestamp||payload): 0xb94fb487c4e3068869c0f1d2b7df013aba7d15fcbabbe0834d966bc546ae2c10
 P2 vol live: BVvtGdrq... | P1 risk live: i3syjS74... | tamper rejected on both.
+
+## EC2 bring-up (recorded for repeatability)
+- Instance: m5.xlarge, us-east-1, Amazon Linux 2023, Nitro Enclaves ENABLED, 30GB root.
+- Approach: build the EIF ON the instance (clone repo, `make ENCLAVE_APP=floe-nav`) rather than
+  scp the 110MB EIF up (slow over remote links). Keeps reproducible-build story clean.
+- Setup: dnf install aws-nitro-enclaves-cli{,-devel} socat docker git; usermod -aG ne,docker;
+  allocator.yaml -> 1536 MiB / 2 CPU; enable nitro-enclaves-allocator + docker; RE-LOGIN.
+- Lagos IP rotates -> if SSH times out, reset the SG inbound SSH rule via AWS web console.
+- Run NON-debug for real PCRs. Bridge: socat TCP-LISTEN:3000 <-> VSOCK; send {} to :7777 first.
+- Endpoints: /health_check (pubkey), /sign_heartbeat, /sign_vol, /sign_risk, /sign_collateral.
+
+## EC2 bring-up (recorded for repeatability)
+- Instance: m5.xlarge, us-east-1, Amazon Linux 2023, Nitro Enclaves ENABLED, 30GB root.
+- Approach: build the EIF ON the instance (clone repo, `make ENCLAVE_APP=floe-nav`) rather than
+  scp the 110MB EIF up (slow over remote links). Keeps reproducible-build story clean.
+- Setup: dnf install aws-nitro-enclaves-cli{,-devel} socat docker git; usermod -aG ne,docker;
+  allocator.yaml -> 1536 MiB / 2 CPU; enable nitro-enclaves-allocator + docker; RE-LOGIN.
+- Lagos IP rotates -> if SSH times out, reset the SG inbound SSH rule via AWS web console.
+- Run NON-debug for real PCRs. Bridge: socat TCP-LISTEN:3000 <-> VSOCK; send {} to :7777 first.
+- Endpoints: /health_check (pubkey), /sign_heartbeat, /sign_vol, /sign_risk, /sign_collateral.

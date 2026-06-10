@@ -1,0 +1,25 @@
+{
+  "session": "P3 Floe Lend — proven live end-to-end (enclave-attested borrow)",
+  "date": "2026-06-10",
+  "enclave": {
+    "pcr0_pcr1": "b4d532247e4750b239548897063dba140995db04529f9aceea5936f139f2c031e43871b1b69418d86822e72b0f0d6cab",
+    "pcr2": "21b9efbc184807662e966d34f390821309eeac6802309798826296bf3e8bec7c10edb30948c90ba67310f7b964fc500a",
+    "enclave_object": "0x23f37e2f2f642d1e1c11c1cb94ab98156b1a8943d28775dac62a4ea4a24783fd",
+    "attester_pubkey": "c680e5cbba385860e22ce71113a2ef06c18bc43a87826a8ec67e79f85cfb37eb",
+    "reproducible": "PCR0 identical on laptop + EC2 builds from upstream af7535b + our floe-nav app"
+  },
+  "lend": {
+    "package": "0x5135151fc146fff78fe52845d683e355453e86d1ae1d5adb5d6b19a3c878b992",
+    "pool": "0x7c929f24cb579c7c86fec0b29f8b1496a7f4f565e3e6755b5136bca2f81754a7",
+    "debt_position": "0x971c626e1b578558781ccbabc7dd5777216f0f1fe352b245d3b392fc2ce5138a"
+  },
+  "proofs": {
+    "update_pcrs": "G2UHzaZbqYsP7G2qXxcGxNcDuMgbz55t2LQSjDmyvHdc",
+    "register_enclave": "5EE5znwmxgwstNHeqbFeaRb3mwUUQHKtPtqfBQ7GmLc6",
+    "create_pool": "JAXwz8SPhT1AcBdGkkH9cwPRy2arYaBAwvzjK7msBTYc",
+    "register_collateral_attester": "DcSHDDhp6P6cqyQGRze8YEqrtJed4GT63mYL2NGJQhkU",
+    "supply_5_dusdc": "8chonRp2rx1wUdtX9n6qrHAuqcw4yjeixWSCBQjBxe1h",
+    "LIVE_ATTESTED_BORROW": "EZ9ABxiLu8L9R96oBKdMweEg9kFA3XTAXskqqoF5VBMK"
+  },
+  "what_it_proves": "Real Nitro enclave signed a CollateralPayload (intent 3) over the vault's live nav_lower_bound + share_supply; floe_lend self-verified the ed25519 signature on-chain, priced collateral at the attested floor, enforced 70% LTV, and drew a real dUSDC loan. The integrity mechanism proven in production, not just unit tests."
+}
