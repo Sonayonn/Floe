@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+* { box-sizing: border-box; margin: 0; }
+body { background:#05060a; font-family:'Hanken Grotesk',sans-serif; padding:28px; }
+.grid { display:grid; grid-template-columns:repeat(3,1fr); gap:22px; }
+.mono { font-family:'JetBrains Mono',monospace; font-variant-numeric:tabular-nums; }
+h1.title{font-family:'Space Grotesk';color:#fff;font-size:22px;margin-bottom:4px;letter-spacing:-.02em}
+p.lede{color:#7a8290;font-size:13px;margin-bottom:22px}
+
+/* ---- per-theme column ---- */
+.col { border-radius:18px; overflow:hidden; border:1px solid rgba(255,255,255,.06); background:var(--base); }
+.theme-name { font-family:'Space Grotesk'; font-weight:600; font-size:14px; color:var(--text); padding:14px 18px; border-bottom:1px solid var(--hair); display:flex; justify-content:space-between; align-items:center; }
+.theme-name small { font-family:'JetBrains Mono'; font-size:10.5px; color:var(--subtle); letter-spacing:.04em; }
+
+/* mini nav */
+.nav { display:flex; align-items:center; gap:12px; padding:12px 18px; border-bottom:1px solid var(--hair); background:linear-gradient(180deg,rgba(255,255,255,.02),transparent); }
+.brand { font-family:'Space Grotesk'; font-weight:600; color:var(--text); letter-spacing:-.04em; font-size:17px; }
+.brand b{color:var(--brand)}
+.netpill { margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-family:'JetBrains Mono'; font-size:10px; color:var(--muted); border:1px solid var(--border); border-radius:99px; padding:4px 9px; }
+.dot { width:6px;height:6px;border-radius:50%;background:var(--proven);box-shadow:0 0 8px var(--proven); }
+.connect { background:linear-gradient(180deg,var(--brand),var(--brand-deep)); color:var(--brand-ink); font-weight:600; font-size:12px; border:none; border-radius:8px; padding:7px 13px; font-family:'Hanken Grotesk'; }
+
+/* feature card */
+.card { padding:20px; }
+.row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+.eyebrow { font-family:'JetBrains Mono'; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--brand); margin-right:auto; }
+.badge { display:inline-flex; align-items:center; gap:6px; height:24px; padding:0 10px; border-radius:99px; font-family:'JetBrains Mono'; font-size:10.5px; }
+.badge.official { color:var(--brand); border:1px solid var(--brand-line); background:var(--brand-soft); }
+.badge.proven { color:var(--proven); border:1px solid var(--proven-line); background:var(--proven-soft); box-shadow:0 0 18px -6px var(--proven-glow); }
+.badge.stale  { color:var(--stale); border:1px solid rgba(232,180,90,.3); background:rgba(232,180,90,.13); }
+.badge .b { width:6px;height:6px;border-radius:50%; }
+.badge.proven .b{background:var(--proven);box-shadow:0 0 8px var(--proven)}
+.badge.stale .b{background:var(--stale)}
+
+.vname { font-family:'Space Grotesk'; font-weight:600; font-size:30px; color:var(--text); letter-spacing:-.03em; display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+.disc { width:34px;height:34px;border-radius:50%;background:linear-gradient(150deg,var(--brand),var(--brand-deep)); flex:none; }
+
+.stats { display:flex; justify-content:space-between; margin-bottom:10px; }
+.k { font-family:'JetBrains Mono'; font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--subtle); }
+.v { font-family:'JetBrains Mono'; font-size:24px; color:var(--text); }
+.v.floor{color:var(--proven)}
+.right{text-align:right}
+
+.track { height:30px; border-radius:8px; background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(0,0,0,.25)); border:1px solid var(--border); overflow:hidden; position:relative; margin-bottom:8px; }
+.fill { height:100%; width:78%; background:linear-gradient(180deg,var(--proven-fill),var(--proven-fill2)); position:relative; }
+.fill::after{content:'';position:absolute;right:0;top:0;bottom:0;width:2px;background:var(--proven);box-shadow:0 0 14px 1px var(--proven-glow)}
+.axis{font-size:11px;color:var(--muted);margin-bottom:18px}
+.axis b{color:var(--proven);font-family:'JetBrains Mono'}
+
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px}
+.chip{display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;border-radius:99px;font-family:'JetBrains Mono';font-size:11px;color:var(--muted);border:1px solid var(--border);background:rgba(255,255,255,.02)}
+.chip.live{color:var(--brand);border-color:var(--brand-line);background:var(--brand-soft)}
+.chip i{width:13px;height:13px;border-radius:3px;background:currentColor;opacity:.85}
+
+.cta{display:flex;gap:10px}
+.btn{height:38px;padding:0 16px;border-radius:8px;font-weight:600;font-size:13px;font-family:'Hanken Grotesk';display:inline-flex;align-items:center;border:1px solid transparent}
+.btn.p{background:linear-gradient(180deg,var(--brand),var(--brand-deep));color:var(--brand-ink)}
+.btn.s{background:var(--panel);color:var(--text);border-color:var(--border)}
+
+/* ============ THEME 1 — OBSIDIAN + IRIS ============ */
+.t1{
+ --base:#0B0D12; --panel:#14171b; --hair:rgba(255,255,255,.05); --border:rgba(160,170,190,.14);
+ --text:#E8ECF2; --muted:#9aa3b2; --subtle:#5b6473;
+ --brand:#6CA8FF; --brand-deep:#3f7fe0; --brand-ink:#06122a; --brand-soft:rgba(108,168,255,.14); --brand-line:rgba(108,168,255,.32);
+ --proven:#A78BFA; --proven-line:rgba(167,139,250,.4); --proven-soft:rgba(167,139,250,.15); --proven-glow:rgba(167,139,250,.55); --proven-fill:rgba(167,139,250,.4); --proven-fill2:rgba(124,99,210,.22);
+ --stale:#E8B45A;
+}
+/* ============ THEME 2 — DEEP INK + VERIFIED LIME ============ */
+.t2{
+ --base:#070A12; --panel:#111726; --hair:rgba(255,255,255,.05); --border:rgba(150,170,210,.14);
+ --text:#EAF0FA; --muted:#94a0b8; --subtle:#586580;
+ --brand:#7DA8FF; --brand-deep:#4f7fe6; --brand-ink:#07122a; --brand-soft:rgba(125,168,255,.14); --brand-line:rgba(125,168,255,.32);
+ --proven:#BFF34A; --proven-line:rgba(191,243,74,.4); --proven-soft:rgba(191,243,74,.14); --proven-glow:rgba(191,243,74,.55); --proven-fill:rgba(191,243,74,.34); --proven-fill2:rgba(150,200,40,.18);
+ --stale:#E8B45A;
+}
+/* ============ THEME 3 — GRAPHITE + ELECTRIC CYAN ============ */
+.t3{
+ --base:#0C0E12; --panel:#15181e; --hair:rgba(255,255,255,.05); --border:rgba(170,180,195,.14);
+ --text:#ECEEF2; --muted:#9aa1ad; --subtle:#5d6470;
+ --brand:#BFE9F2; --brand-deep:#7fc8d8; --brand-ink:#082026; --brand-soft:rgba(63,224,255,.12); --brand-line:rgba(63,224,255,.3);
+ --proven:#2FE3FF; --proven-line:rgba(47,227,255,.4); --proven-soft:rgba(47,227,255,.13); --proven-glow:rgba(47,227,255,.55); --proven-fill:rgba(47,227,255,.32); --proven-fill2:rgba(30,150,180,.18);
+ --stale:#E8B45A;
+}
+</style></head>
+<body>
+<h1 class="title">Floe — palette directions</h1>
+<p class="lede">Same card, three palettes. Note how the <b style="color:#fff">proven floor / waterline / proof badge</b> uses the dedicated "proven" hue, separate from the brand.</p>
+<div class="grid">
+<!-- repeated card -->
+<script>
+const themes=[['t1','Obsidian + Iris','#6CA8FF brand · #A78BFA proof'],['t2','Deep Ink + Verified Lime','#7DA8FF brand · #BFF34A proof'],['t3','Graphite + Electric Cyan','#BFE9F2 brand · #2FE3FF proof']];
+document.querySelector('.grid').innerHTML = themes.map(([c,n,sub])=>`
+<div class="col ${c}">
+  <div class="theme-name">${n}<small>${sub}</small></div>
+  <div class="nav"><span class="brand"><b>floe</b></span><span class="netpill"><span class="dot"></span>Testnet</span><button class="connect">Connect wallet</button></div>
+  <div class="card">
+    <div class="row"><span class="eyebrow">Flagship vault</span><span class="badge official">◆ Floe official</span><span class="badge stale"><span class="b"></span>Floor proven · re-attest pending</span></div>
+    <div class="vname"><span class="disc"></span>Floe Stratos</div>
+    <div class="stats"><div><div class="k">Net asset value</div><div class="v">12,480.55</div></div><div class="right"><div class="k">Proven floor</div><div class="v floor">9,734.21</div></div></div>
+    <div class="track"><div class="fill"></div></div>
+    <div class="axis"><b>78.0%</b> cryptographically certain</div>
+    <div class="chips"><span class="chip live"><i></i>DeepBook Predict</span><span class="chip live"><i></i>Cetus</span><span class="chip"><i></i>idle reserve</span></div>
+    <div style="display:flex;gap:8px;margin-bottom:16px"><span class="badge proven"><span class="b"></span>◆ Proven · floor attested</span></div>
+    <div class="cta"><button class="btn p">Open vault →</button><button class="btn s">View attestation</button></div>
+  </div>
+</div>`).join('');
+</script>
+</div>
+</body></html>

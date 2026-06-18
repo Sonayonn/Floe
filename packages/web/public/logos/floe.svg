@@ -1,0 +1,30 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Floe">
+  <defs>
+    <linearGradient id="floeProvenL" x1="50" y1="42" x2="38" y2="94" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6df8ea"/>
+      <stop offset="1" stop-color="#1ac6b6"/>
+    </linearGradient>
+    <linearGradient id="floeProvenR" x1="62" y1="42" x2="55" y2="94" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#19c2b3"/>
+      <stop offset="1" stop-color="#0a665f"/>
+    </linearGradient>
+    <linearGradient id="floeFrostL" x1="50" y1="8" x2="32" y2="42" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d2faf4" stop-opacity="0.78"/>
+      <stop offset="1" stop-color="#74ebde" stop-opacity="0.48"/>
+    </linearGradient>
+    <linearGradient id="floeFrostR" x1="50" y1="8" x2="70" y2="42" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#b6f4ec" stop-opacity="0.56"/>
+      <stop offset="1" stop-color="#56ddd0" stop-opacity="0.30"/>
+    </linearGradient>
+  </defs>
+  <polygon points="50,8 15,42 50,42" fill="url(#floeFrostL)"/>
+  <polygon points="50,8 85,42 50,42" fill="url(#floeFrostR)"/>
+  <polygon points="15,42 50,42 50,94" fill="url(#floeProvenL)"/>
+  <polygon points="85,42 50,42 50,94" fill="url(#floeProvenR)"/>
+  <g fill="none" stroke="#eafffb" stroke-opacity="0.20" stroke-width="0.9" stroke-linejoin="round">
+    <polygon points="50,8 85,42 50,94 15,42"/>
+    <line x1="50" y1="8" x2="50" y2="94"/>
+  </g>
+  <rect x="5" y="38.6" width="90" height="6.8" rx="3.4" fill="#34e6d6" fill-opacity="0.22"/>
+  <rect x="8" y="40.4" width="84" height="3.2" rx="1.6" fill="#eafffb"/>
+</svg>

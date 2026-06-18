@@ -9,5 +9,11 @@
     "test": "pnpm -r --if-present run test",
     "build": "pnpm -r --if-present run build"
   },
-  "packageManager": "pnpm@11.1.2"
+  "packageManager": "pnpm@11.1.2",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sharp",
+      "esbuild"
+    ]
+  }
 }

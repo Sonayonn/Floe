@@ -43,6 +43,10 @@ export async function deploy(floe: FloeClient, opts: DeployVaultOpts): Promise<D
 
   // ── Tx 1: publish the per-vault share module (coin_registry) ──
   const share = publishShareModule({ symbol: opts.symbol, name: opts.name });
+  // The publish (a separate `sui client publish` process) spent the curator's gas
+  // coin; wait for the fullnode to index the new version before the SDK reuses it,
+  // otherwise Tx 2/3 can grab a stale coin version (-32002 "unavailable for consumption").
+  await floe.sui.waitForTransaction({ digest: share.digest });
 
   // ── Tx 2: provision PredictManager + BalanceManager (both create+transfer to sender) ──
   const mTx = new Transaction();
@@ -55,6 +59,8 @@ export async function deploy(floe: FloeClient, opts: DeployVaultOpts): Promise<D
     options: { showObjectChanges: true, showEffects: true },
   });
   if (mRes.effects?.status?.status !== 'success') throw new Error(`manager provisioning failed: ${JSON.stringify(mRes.effects?.status)}`);
+  // Settle before Tx 3 reuses the same gas coin (same -32002 race as above).
+  await floe.sui.waitForTransaction({ digest: mRes.digest });
   const mChanges: any[] = mRes.objectChanges ?? [];
   const pm = mChanges.find((c) => c.type === 'created' && c.objectType?.endsWith('::predict_manager::PredictManager'));
   const bm = mChanges.find((c) => c.type === 'created' && c.objectType?.endsWith('::balance_manager::BalanceManager'));

@@ -14,6 +14,7 @@
  *     atomically, without unwinding the yield. (Optional, risk-labelled in the UI.)
  */
 import { Transaction } from '@mysten/sui/transactions';
+import { fromHex } from '@mysten/sui/utils';
 import type { FloeClient } from '../client.ts';
 
 const u64le = (bytes: number[]): bigint => {
@@ -70,78 +71,100 @@ export function registerCollateralAttester(
   return tx;
 }
 
+// Recipient for produced objects. Node callers (with a signer) can omit it; browser callers
+// (dapp-kit signs, the client has no signer) MUST pass the connected address explicitly —
+// mirrors buildDepositTx's `sender`.
+const recipientOf = (floe: FloeClient, recipient?: string): string => {
+  const r = recipient ?? floe.address;
+  if (!r) throw new Error('lend tx: no recipient — pass `recipient` (browser) or construct the client with a signer (node).');
+  return r;
+};
+
 // ─── Supply side ──────────────────────────────────────────────────────────────
 export function supply(
   floe: FloeClient, pool: string, coinId: string, typeQ: string, typeS: string,
+  recipient?: string,
 ): Transaction {
   const a = floe.addresses;
+  const me = recipientOf(floe, recipient);
   const tx = new Transaction();
   const pos = tx.moveCall({
     target: `${a.lend.package}::${a.lend.module}::supply`,
     typeArguments: [typeQ, typeS],
     arguments: [tx.object(pool), tx.object(coinId), tx.object(a.clock)],
   });
-  tx.transferObjects([pos], floe.address!);
+  tx.transferObjects([pos], me);
   return tx;
 }
 
 export function withdraw(
   floe: FloeClient, pool: string, position: string, amount: bigint,
-  typeQ: string, typeS: string,
+  typeQ: string, typeS: string, recipient?: string,
 ): Transaction {
   const a = floe.addresses;
+  const me = recipientOf(floe, recipient);
   const tx = new Transaction();
   const [coin, leftover] = tx.moveCall({
     target: `${a.lend.package}::${a.lend.module}::withdraw`,
     typeArguments: [typeQ, typeS],
     arguments: [tx.object(pool), tx.object(position), tx.pure.u64(amount), tx.object(a.clock)],
   });
-  tx.transferObjects([coin], floe.address!);
+  tx.transferObjects([coin], me);
   // leftover is Option<SupplyPosition>; transfer back if present (SDK consumer handles)
-  tx.transferObjects([leftover], floe.address!);
+  tx.transferObjects([leftover], me);
   return tx;
 }
 
 // ─── Borrow side (consumes the attested valuation — integrity-enforced) ───────
+// lock_and_borrow takes a Coin<S> as collateral and locks its WHOLE value. To lock an exact
+// amount, pass `collateralAmount` and we split the coin first (the rest returns to `recipient`).
+// Omit it to lock the entire collateral coin object.
 export function lockAndBorrow(
   floe: FloeClient, pool: string, collateralCoinId: string, borrowAmount: bigint,
   v: SignedValuation, typeQ: string, typeS: string,
+  recipient?: string, collateralAmount?: bigint,
 ): Transaction {
   const a = floe.addresses;
+  const me = recipientOf(floe, recipient);
   const tx = new Transaction();
+  const collateral = collateralAmount === undefined
+    ? tx.object(collateralCoinId)
+    : tx.splitCoins(tx.object(collateralCoinId), [tx.pure.u64(collateralAmount)])[0];
   const [loan, debt] = tx.moveCall({
     target: `${a.lend.package}::${a.lend.module}::lock_and_borrow`,
     typeArguments: [typeQ, typeS],
     arguments: [
-      tx.object(pool), tx.object(collateralCoinId), tx.pure.u64(borrowAmount),
+      tx.object(pool), collateral, tx.pure.u64(borrowAmount),
       tx.pure.address(v.vaultId), tx.pure.u64(v.navLowerBound), tx.pure.u64(v.shareSupply),
       tx.pure.u64(v.timestampMs), tx.pure.vector('u8', v.signature), tx.object(a.clock),
     ],
   });
-  tx.transferObjects([loan, debt], floe.address!);
+  tx.transferObjects([loan, debt], me);
   return tx;
 }
 
 export function repay(
   floe: FloeClient, pool: string, position: string, paymentCoinId: string,
-  typeQ: string, typeS: string,
+  typeQ: string, typeS: string, recipient?: string,
 ): Transaction {
   const a = floe.addresses;
+  const me = recipientOf(floe, recipient);
   const tx = new Transaction();
   const [leftover, collateral, posBack] = tx.moveCall({
     target: `${a.lend.package}::${a.lend.module}::repay`,
     typeArguments: [typeQ, typeS],
     arguments: [tx.object(pool), tx.object(position), tx.object(paymentCoinId), tx.object(a.clock)],
   });
-  tx.transferObjects([leftover, collateral, posBack], floe.address!);
+  tx.transferObjects([leftover, collateral, posBack], me);
   return tx;
 }
 
 export function liquidate(
   floe: FloeClient, pool: string, position: string, repaymentCoinId: string,
-  v: SignedValuation, typeQ: string, typeS: string,
+  v: SignedValuation, typeQ: string, typeS: string, recipient?: string,
 ): Transaction {
   const a = floe.addresses;
+  const me = recipientOf(floe, recipient);
   const tx = new Transaction();
   const [seized, leftover] = tx.moveCall({
     target: `${a.lend.package}::${a.lend.module}::liquidate`,
@@ -152,7 +175,7 @@ export function liquidate(
       tx.pure.u64(v.timestampMs), tx.pure.vector('u8', v.signature), tx.object(a.clock),
     ],
   });
-  tx.transferObjects([seized, leftover], floe.address!);
+  tx.transferObjects([seized, leftover], me);
   return tx;
 }
 
@@ -218,11 +241,19 @@ export async function fetchSignedValuation(
   const [navLowerBound, shareSupply] = await Promise.all([
     readVault('nav_lower_bound'), readVault('share_supply'),
   ]);
-  // ask the enclave to sign the intent-3 payload over the on-chain-read values
+  // ask the enclave to sign the intent-3 payload over the on-chain-read values.
+  // The enclave (floe-nav/mod.rs CollateralRequest) deserializes vault_id as [u8; 32] and
+  // nav_lower_bound/share_supply as numeric u64 — so send a byte array + JSON numbers, NOT
+  // a hex string / stringified ints (serde would reject those). u64-as-Number is safe for
+  // 6dp testnet magnitudes (well under 2^53).
   const resp = await fetch(`${enclaveUrl}/sign_collateral`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      payload: { vault_id: vaultId, nav_lower_bound: navLowerBound.toString(), share_supply: shareSupply.toString() },
+      payload: {
+        vault_id: Array.from(fromHex(vaultId.replace(/^0x/, ''))),
+        nav_lower_bound: Number(navLowerBound),
+        share_supply: Number(shareSupply),
+      },
     }),
   });
   if (!resp.ok) throw new Error(`enclave sign_collateral failed: ${resp.status}`);
@@ -246,15 +277,19 @@ export function borrowAndTradePredict(
   floe: FloeClient, pool: string, collateralCoinId: string, borrowAmount: bigint,
   v: SignedValuation,
   predict: { marketId: string; direction: boolean; sizeArg?: bigint },
-  typeQ: string, typeS: string,
+  typeQ: string, typeS: string, recipient?: string, collateralAmount?: bigint,
 ): Transaction {
   const a = floe.addresses;
+  const me = recipientOf(floe, recipient);
   const tx = new Transaction();
+  const collateral = collateralAmount === undefined
+    ? tx.object(collateralCoinId)
+    : tx.splitCoins(tx.object(collateralCoinId), [tx.pure.u64(collateralAmount)])[0];
   const [loan, debt] = tx.moveCall({
     target: `${a.lend.package}::${a.lend.module}::lock_and_borrow`,
     typeArguments: [typeQ, typeS],
     arguments: [
-      tx.object(pool), tx.object(collateralCoinId), tx.pure.u64(borrowAmount),
+      tx.object(pool), collateral, tx.pure.u64(borrowAmount),
       tx.pure.address(v.vaultId), tx.pure.u64(v.navLowerBound), tx.pure.u64(v.shareSupply),
       tx.pure.u64(v.timestampMs), tx.pure.vector('u8', v.signature), tx.object(a.clock),
     ],
@@ -268,6 +303,6 @@ export function borrowAndTradePredict(
       loan, tx.pure.bool(predict.direction), tx.object(a.clock),
     ],
   });
-  tx.transferObjects([debt], floe.address!);
+  tx.transferObjects([debt], me);
   return tx;
 }

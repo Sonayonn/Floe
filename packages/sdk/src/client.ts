@@ -1,4 +1,4 @@
-import { SuiClient, getFullnodeUrl } from '@mysten/sui/client';
+import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
 import type { Signer } from '@mysten/sui/cryptography';
 import { FLOE_ADDRESSES, type FloeNetwork } from './constants.ts';
 
@@ -10,16 +10,16 @@ export interface FloeClientConfig {
   signer?: Signer;
 }
 
-/** The Floe SDK entry point. Wraps a SuiClient + the canonical addresses. */
+/** The Floe SDK entry point. Wraps a SuiJsonRpcClient + the canonical addresses. */
 export class FloeClient {
   readonly network: FloeNetwork;
-  readonly sui: SuiClient;
+  readonly sui: SuiJsonRpcClient;
   readonly addresses: (typeof FLOE_ADDRESSES)[FloeNetwork];
   readonly signer?: Signer;
 
   constructor(config: FloeClientConfig = {}) {
     this.network = config.network ?? 'testnet';
-    this.sui = new SuiClient({ url: config.rpcUrl ?? getFullnodeUrl(this.network) });
+    this.sui = new SuiJsonRpcClient({ url: config.rpcUrl ?? getJsonRpcFullnodeUrl(this.network), network: this.network });
     this.addresses = FLOE_ADDRESSES[this.network];
     this.signer = config.signer;
   }

@@ -7,7 +7,6 @@ import * as vaultActions from './vault/actions.ts';
 import * as vaultSelfHeal from './vault/self-heal.ts';
 import * as registry from './registry.ts';
 import * as treasury from './treasury.ts';
-import * as share from './share/publish.ts';
 import * as policyCfg from './config/policy.ts';
 import * as feesCfg from './config/fees.ts';
 import * as shareTemplate from './share/template.ts';
@@ -26,7 +25,7 @@ export const Registry = { ...registry };
 /** Protocol revenue. */
 export const Treasury = { ...treasury };
 /** Per-vault share token publishing (coin_registry). */
-export const Share = { ...share, ...shareTemplate };
+export const Share = { ...shareTemplate };
 export const Policy = { ...policyCfg };
 export const Fees = { ...feesCfg };
 /** On-chain implied-volatility index (DeepBook Predict SVI oracle). */
@@ -58,4 +57,5 @@ export type { VenueModule, VenueValuation } from './venues/types.ts';
 export { DeepBookModule } from './venues/deepbook.ts';
 export { CetusModule } from './venues/cetus.ts';
 export { CETUS_TESTNET } from './venues/cetus-config.ts';
-
+export { listVaults, type VaultSummary } from './registry/read.ts';
+export { getVaultState, getNav, getSharePrice, isAttested } from './vault/read.ts';

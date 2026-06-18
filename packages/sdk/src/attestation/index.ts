@@ -157,7 +157,7 @@ export function verifyRiskAttested(
   });
   return floe.sui.signAndExecuteTransaction({
     signer: floe.signer, transaction: tx, options: { showEffects: true },
-  }).then((res) => {
+  }).then((res: Awaited<ReturnType<typeof floe.sui.signAndExecuteTransaction>>) => {
     if (res.effects?.status?.status !== 'success') {
       throw new Error(`verify_risk_attested rejected: ${res.effects?.status?.error ?? 'unknown'}`);
     }

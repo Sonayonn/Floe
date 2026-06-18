@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 96" width="250" height="96" role="img" aria-label="floe">
+  <g transform="translate(10,18) scale(0.6)" fill="#0c1922">
+    <g fill-opacity="0.5"><polygon points="50,8 15,42 50,42"/><polygon points="50,8 85,42 50,42"/></g>
+    <polygon points="15,42 50,42 50,94"/>
+    <polygon points="85,42 50,42 50,94"/>
+    <rect x="8" y="40.3" width="84" height="3.4" rx="1.7"/>
+  </g>
+  <text x="82" y="64" font-family="'Space Grotesk', sans-serif" font-weight="700" font-size="52" letter-spacing="-2.4" fill="#0c1922">floe</text>
+</svg>

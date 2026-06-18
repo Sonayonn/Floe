@@ -1,0 +1,14 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Floe">
+  <g fill="currentColor">
+    <!-- soft mark above the waterline (lighter) -->
+    <g fill-opacity="0.5">
+      <polygon points="50,8 15,42 50,42"/>
+      <polygon points="50,8 85,42 50,42"/>
+    </g>
+    <!-- proven floor below the waterline (solid) -->
+    <polygon points="15,42 50,42 50,94"/>
+    <polygon points="85,42 50,42 50,94"/>
+    <!-- waterline -->
+    <rect x="8" y="40.3" width="84" height="3.4" rx="1.7"/>
+  </g>
+</svg>

@@ -29,10 +29,24 @@ Thumbs.db
 # Move build artifacts
 packages/move/build/
 
+# Secrets — fresh vault-deployer key (also stored in the local Sui CLI keystore)
+*.fresh-deployer.key
+
 # Misc
 *.tsbuildinfo
 scripts/data/
 .oracle-monitor-state.json
-nautilus-template/
 collat_live.json
 attestation_lend.json
+
+# Claude Code
+.claude/
+
+# Secrets / keys (safety net)
+*.pem
+**/secrets/
+seed-*-result.json
+
+# Nautilus build artifacts (keep source, ignore builds)
+nautilus-template/src/nautilus-server/target/
+nautilus-template/out/

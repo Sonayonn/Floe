@@ -1,7 +1,7 @@
-import { Share } from '../src/index.ts';
+import { publishShareModule } from '../src/share/publish.ts';
 
 console.log('Publishing a fresh per-vault share module via @floe/sdk (coin_registry)...\n');
-const result = Share.publishShareModule({
+const result = publishShareModule({
   symbol: 'flTest',
   name: 'Floe Test Share',
   description: 'SDK-published test share',

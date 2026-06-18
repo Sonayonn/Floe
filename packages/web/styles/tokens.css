@@ -1,0 +1,106 @@
+/* ============================================================================
+   FLOE — "Deep Water" design tokens
+   One source of truth for the whole app: surfaces, accents, provenance
+   semantics, type, space, radius, motion, elevation.
+   Theme: looking down into cold, deep water. The proven floor is the waterline.
+   ========================================================================== */
+:root {
+  color-scheme: dark;
+
+  /* ── Surfaces (neutral graphite — lets the teal accent pop) ── */
+  --abyss:          #050609;   /* deepest layer, atmosphere base */
+  --bg:             #0C0E12;   /* page background — neutral graphite, no teal tint */
+  --bg-deep:        #0f1218;   /* below-fold / inset wells */
+  --surface:        rgba(22, 26, 32, 0.60);    /* glass card */
+  --surface-2:      rgba(30, 35, 43, 0.72);    /* raised glass */
+  --surface-solid:  #15181e;   /* opaque card where blur is unwanted */
+  --surface-raised: #1b1f27;   /* inputs, inner wells */
+
+  /* ── Lines (neutral cool grey, not teal) ── */
+  --border:         rgba(170, 182, 200, 0.12);
+  --border-strong:  rgba(178, 190, 205, 0.22);
+  --hairline:       rgba(236, 238, 242, 0.06);
+  --edge-light:     rgba(255, 255, 255, 0.055); /* top-edge highlight on glass */
+
+  /* ── Brand / accents ── */
+  --accent:         #34e6d6;   /* aqua — "proven" / primary */
+  --accent-deep:    #15b3a6;
+  --accent-ink:     #04201d;   /* readable text on an accent fill */
+  --accent-soft:    rgba(52, 230, 214, 0.13);
+  --accent-line:    rgba(52, 230, 214, 0.30);
+  --accent-glow:    rgba(52, 230, 214, 0.42);
+  --current:        #4a90d9;   /* secondary blue — depth, links, charts */
+  --current-soft:   rgba(74, 144, 217, 0.16);
+
+  /* ── Provenance semantics (the brand language) ── */
+  --proven:         var(--accent);
+  --stale:          #ecb45a;   /* calm amber — designed-safe, NEVER red */
+  --stale-soft:     rgba(236, 180, 90, 0.13);
+  --stale-line:     rgba(236, 180, 90, 0.30);
+  --unattested:     #8aa1ad;   /* neutral slate */
+  --unattested-soft:rgba(138, 161, 173, 0.12);
+  --danger:         #f2766e;   /* genuine danger only (liquidation) */
+  --gain:           #4ade9e;
+  --loss:           #f2766e;
+
+  /* ── Text (neutral cool white/grey on graphite) ── */
+  --text:           #ECEEF2;
+  --text-muted:     #9aa1ad;
+  --text-subtle:    #5d6470;
+  --text-faint:     #444b56;
+
+  /* ── Type families (wired in layout via next/font) ── */
+  --font-display: var(--font-space-grotesk), "Space Grotesk", system-ui, sans-serif;
+  --font-sans:    var(--font-hanken), "Hanken Grotesk", system-ui, sans-serif;
+  --font-mono:    var(--font-jetbrains), "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+
+  /* ── Type scale (16px base) ── */
+  --text-xs:   0.72rem;
+  --text-sm:   0.82rem;
+  --text-base: 0.94rem;
+  --text-md:   1rem;
+  --text-lg:   1.15rem;
+  --text-xl:   1.4rem;
+  --text-2xl:  1.8rem;
+  --text-3xl:  2.4rem;
+  --text-4xl:  3.3rem;
+  --text-5xl:  4.4rem;
+
+  /* ── Spacing ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+  --space-9: 64px;
+  --space-10: 96px;
+
+  /* ── Radius ── */
+  --radius-sm:  8px;
+  --radius:     12px;
+  --radius-lg:  16px;
+  --radius-xl:  22px;
+  --radius-pill: 999px;
+
+  /* ── Motion — "settling water" ── */
+  --ease:     cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-1: 0.14s;
+  --dur-2: 0.28s;
+  --dur-3: 0.6s;
+
+  /* ── Elevation / glow ── */
+  --shadow-sm: 0 2px 12px -8px rgba(0, 0, 0, 0.7);
+  --shadow:    0 22px 54px -30px rgba(0, 0, 0, 0.78);
+  --shadow-lg: 0 44px 92px -42px rgba(0, 0, 0, 0.82);
+  --inset-top: inset 0 1px 0 var(--edge-light);
+  --glow-accent: 0 0 0 1px var(--accent-line), 0 0 28px -8px var(--accent-glow);
+  --glow-stale:  0 0 0 1px var(--stale-line), 0 0 22px -10px rgba(236, 180, 90, 0.42);
+
+  /* ── Layout ── */
+  --nav-h: 64px;
+  --container: 1280px;
+}

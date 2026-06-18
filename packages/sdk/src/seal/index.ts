@@ -96,7 +96,7 @@ export async function decryptStrategyAsCurator(
     address: floe.signer.toSuiAddress(),
     packageId: a.packageOriginal,
     ttlMin: 10,
-    signer: floe.signer,
+    signer: floe.signer as any,
     suiClient: floe.sui as any,
   });
 

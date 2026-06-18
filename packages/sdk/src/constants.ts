@@ -10,6 +10,10 @@ export const FLOE_ADDRESSES = {
     packageOriginal: '0x1aacf4f9f787807d811c058e4a3194f48b2ad30f50096c0713668b656bbd6003', // TRUE genesis publish (type-origin verified) — Seal packageId namespace
     module:        'floe',
     registry:      '0x3462badecc7b4274b222f3b2bf0f0ddab572c294336ec8e7c7d62f42bf1a2f45',
+    refVault:      '0xea33fe41c7512a1a36be417b0ce400ada0db0d9fe54f2ade75662aaef987de2e', // live Stratos vault (seed until registry-deployed vaults populate)
+    // Verified on-chain: Vault<DUSDC, SHARE> type args (from the live Stratos objType)
+    refVaultQType: '0xe95040085976bfd54a1a07225cd46c8a2b4e8e2b6732f140a0fc49850ba73e1a::dusdc::DUSDC',
+    refVaultSType: '0x120c29a65c10ada7619429e46a608531cfcb4affe14439ca6838aaa77dfd029f::share::SHARE',
     treasury:      '0x756dbb6350b61e838afcb81fd1c53975af7b51756f6cc0f6d1981b7df8b2639e',
     agentRegistry: '0xabf57ae9db406f0c74922e1857da855f00fcb2396ec4ccece9af8af5ffd06ba9',
 
@@ -76,3 +80,35 @@ export type FloeNetwork = keyof typeof FLOE_ADDRESSES;
 export const INITIAL_SHARE_PRICE = 1_000_000n;   // 1.0 @ 6dp
 export const PLP_PRICE_SCALE = 1_000_000_000n;    // 9dp (SVI/vol scale too)
 export const BPS_DENOM = 10_000n;
+
+/** Sui yield venues a Floe vault can allocate across. Status is honest:
+ *  'live' = wired + deployed on testnet; 'mainnet' = adapter exists, ships at mainnet. */
+export type VenueStatus = 'live' | 'mainnet';
+export interface VenueMeta {
+  key: string;
+  name: string;
+  category: string;
+  status: VenueStatus;
+  blurb: string;
+}
+export const FLOE_VENUES: VenueMeta[] = [
+  { key: 'deepbook', name: 'DeepBook Predict', category: 'Structured / options', status: 'live',
+    blurb: 'Flagship venue. PLP base yield + 1-sigma vertical-range ladder priced off the Block Scholes SVI oracle, with a Margin delta hedge.' },
+  { key: 'cetus', name: 'Cetus', category: 'Concentrated liquidity', status: 'live',
+    blurb: 'CLMM liquidity provision — concentrated-range positions earning swap fees.' },
+  { key: 'idle', name: 'Idle reserve', category: 'Uninvested', status: 'live',
+    blurb: 'Quote asset held in the vault BalanceManager — instantly redeemable, counts fully toward the proven floor.' },
+  { key: 'lending', name: 'Sui lending', category: 'Money market', status: 'mainnet',
+    blurb: 'Overcollateralized lending supply. Adapter implemented; activates at mainnet.' },
+];
+
+export interface AssetMeta { type: string; symbol: string; decimals: number; name: string; }
+export const FLOE_ASSETS: Record<string, AssetMeta> = {
+  '0xe95040085976bfd54a1a07225cd46c8a2b4e8e2b6732f140a0fc49850ba73e1a::dusdc::DUSDC':
+    { type: '0xe95040085976bfd54a1a07225cd46c8a2b4e8e2b6732f140a0fc49850ba73e1a::dusdc::DUSDC', symbol: 'dUSDC', decimals: 6, name: 'Demo USDC' },
+  '0x120c29a65c10ada7619429e46a608531cfcb4affe14439ca6838aaa77dfd029f::share::SHARE':
+    { type: '0x120c29a65c10ada7619429e46a608531cfcb4affe14439ca6838aaa77dfd029f::share::SHARE', symbol: 'flShare', decimals: 6, name: 'Floe Vault Share' },
+};
+export function assetFor(type: string): AssetMeta {
+  return FLOE_ASSETS[type] ?? { type, symbol: type.split('::').pop() ?? '???', decimals: 6, name: 'Unknown asset' };
+}

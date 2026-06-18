@@ -1,0 +1,253 @@
+/* ============================================================================
+   FLOE — app shell: atmosphere, top nav, wallet button, layout frame
+   ========================================================================== */
+
+/* ── Atmosphere: graphite depth + living teal/blue currents (no SVG filters,
+      transform/opacity only — GPU-cheap; sits behind all content) ── */
+.floe-atmosphere {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    radial-gradient(125% 85% at 50% -15%, rgba(52, 230, 214, 0.10) 0%, transparent 55%),
+    linear-gradient(180deg, #11141a 0%, var(--bg) 40%, var(--abyss) 100%);
+}
+/* slow-rotating "current" sheen — gives a continuous sense of flow (WaterX-like) */
+.floe-atmosphere__flow {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 170vmax; height: 170vmax;
+  margin: -85vmax 0 0 -85vmax;
+  background: conic-gradient(from 0deg,
+    transparent 0deg,
+    rgba(52, 230, 214, 0.07) 55deg,
+    transparent 125deg,
+    rgba(74, 144, 217, 0.07) 215deg,
+    transparent 295deg,
+    rgba(52, 230, 214, 0.05) 340deg,
+    transparent 360deg);
+  filter: blur(60px);
+  opacity: 0.9;
+  will-change: transform;
+  animation: floe-rotate 90s linear infinite;
+}
+/* drifting light blooms — the "currents" */
+.floe-atmosphere__caustic {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(24px);
+  will-change: transform;
+}
+.floe-atmosphere__caustic--a {
+  top: -18%; left: 2%;
+  width: 60vw; height: 60vw;
+  background: radial-gradient(circle, rgba(52, 230, 214, 0.18) 0%, transparent 62%);
+  animation: floe-drift 30s var(--ease) infinite;
+}
+.floe-atmosphere__caustic--b {
+  bottom: -26%; right: -4%;
+  width: 66vw; height: 66vw;
+  background: radial-gradient(circle, rgba(74, 144, 217, 0.17) 0%, transparent 60%);
+  animation: floe-drift-alt 38s var(--ease) infinite;
+}
+.floe-atmosphere__caustic--c {
+  top: 22%; left: 42%;
+  width: 46vw; height: 46vw;
+  background: radial-gradient(circle, rgba(52, 230, 214, 0.11) 0%, transparent 66%);
+  animation: floe-drift 34s var(--ease) infinite reverse;
+}
+/* faint horizontal "surface" line near the top */
+.floe-atmosphere__surface {
+  position: absolute;
+  top: 13%; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(52, 230, 214, 0.24), transparent);
+  opacity: 0.55;
+}
+/* vignette so dense content always stays readable above the motion */
+.floe-atmosphere::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: radial-gradient(125% 95% at 50% 32%, transparent 48%, rgba(5, 6, 9, 0.62) 100%);
+}
+
+/* ── Frame ── */
+.floe-main {
+  position: relative;
+  z-index: 1;
+  padding: calc(var(--nav-h) + var(--space-8)) var(--space-7) var(--space-10);
+}
+.floe-container {
+  width: 100%;
+  max-width: var(--container);
+  margin: 0 auto;
+}
+
+/* ── Top nav ── */
+.floe-topnav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 50;
+  height: var(--nav-h);
+  border-bottom: 1px solid var(--hairline);
+  background: linear-gradient(180deg, rgba(12, 14, 18, 0.84), rgba(12, 14, 18, 0.62));
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+}
+.floe-topnav__inner {
+  height: 100%;
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: 0 var(--space-7);
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+}
+
+/* ── Brand wordmark ── */
+.floe-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  user-select: none;
+}
+.floe-topnav__brand { display: inline-flex; transition: transform var(--dur-2) var(--ease); }
+.floe-topnav__brand:hover { transform: translateY(-1px); }
+.floe-brand__mark { display: block; filter: drop-shadow(0 0 10px rgba(52, 230, 214, 0.28)); transition: filter var(--dur-2) var(--ease); }
+.floe-topnav__brand:hover .floe-brand__mark { filter: drop-shadow(0 0 16px rgba(52, 230, 214, 0.5)); }
+.floe-brand__word {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  line-height: 1;
+  color: var(--text);
+}
+
+/* ── Primary nav links ── */
+.floe-topnav__links {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: var(--space-4);
+}
+.floe-topnav__link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 13px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-muted);
+  transition: color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+.floe-topnav__link svg { width: 15px; height: 15px; opacity: 0.85; }
+.floe-topnav__link:hover { color: var(--text); background: rgba(255, 255, 255, 0.035); }
+.floe-topnav__link.is-active { color: var(--text); }
+.floe-topnav__link.is-active::after {
+  content: "";
+  position: absolute;
+  left: 13px; right: 13px; bottom: -1px;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  box-shadow: 0 0 12px -2px var(--accent-glow);
+}
+
+/* ── Right cluster ── */
+.floe-topnav__right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* network indicator */
+.floe-net {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.floe-net__dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px 0 var(--accent-glow);
+  animation: floe-breathe 3.2s var(--ease) infinite;
+}
+
+/* faucet link (testnet helper) */
+.floe-faucet {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 11px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+.floe-faucet:hover { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+.floe-faucet svg { color: var(--accent); }
+@media (max-width: 640px) { .floe-faucet { display: none; } }
+
+/* community / icon link */
+.floe-iconlink {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: var(--radius-pill);
+  border: 1px solid var(--border); background: rgba(255, 255, 255, 0.02);
+  color: var(--text-muted);
+  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+}
+.floe-iconlink:hover { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); transform: translateY(-1px); }
+
+/* ── Wallet button — dapp-kit ConnectButton restyled to match the system ── */
+.floe-connect button,
+button.floe-connect {
+  appearance: none;
+  font-family: var(--font-sans) !important;
+  font-size: var(--text-sm) !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em;
+  color: var(--accent-ink) !important;
+  background: linear-gradient(180deg, var(--accent), var(--accent-deep)) !important;
+  border: 1px solid rgba(52, 230, 214, 0.5) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 9px 16px !important;
+  box-shadow: var(--inset-top), 0 0 20px -8px var(--accent-glow) !important;
+  transition: filter var(--dur-1) var(--ease), transform var(--dur-1) var(--ease) !important;
+  line-height: 1 !important;
+}
+.floe-connect button:hover,
+button.floe-connect:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+/* connected state reads as a glass chip, not a bright CTA */
+.floe-connect[data-connected="true"] button,
+button.floe-connect[data-connected="true"] {
+  color: var(--text) !important;
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border-strong) !important;
+  box-shadow: var(--inset-top) !important;
+}
+
+@media (max-width: 860px) {
+  .floe-topnav__links { display: none; }
+  .floe-main { padding-left: var(--space-5); padding-right: var(--space-5); }
+  .floe-topnav__inner { padding: 0 var(--space-5); }
+}
