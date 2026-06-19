@@ -102,7 +102,7 @@ export default function BorrowPage() {
                 <BasisRow k="Vault NAV floor" v={`${fmt6(m.vault.navLowerBound)} ${assetFor(m.qType).symbol}`} href={suiObject(m.vaultId)} />
                 <BasisRow k="Share supply" v={fmt6(m.vault.shareSupply)} />
                 <BasisRow k="% certain" v={`${m.vault.pctCertain.toFixed(1)}%`} />
-                <BasisRow k="Registered attester" v={shortAddr(LEND.attesterPubkey)} href={suiObject(NAV.enclave)} />
+                <BasisRow k="Verified against" v={`Enclave<FLOE_NAV> ${shortAddr(NAV.enclave)}`} href={suiObject(NAV.enclave)} />
                 <BasisRow k="Intent" v={`#${LEND.collateralIntent} · CollateralPayload`} />
               </div>
             </section>

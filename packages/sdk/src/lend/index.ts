@@ -56,20 +56,9 @@ export function createPool(
   return tx;
 }
 
-export function registerCollateralAttester(
-  floe: FloeClient, adminCap: string, pool: string, pubkeyHex: string,
-  typeQ: string, typeS: string,
-): Transaction {
-  const a = floe.addresses;
-  const pubkey = Array.from(Buffer.from(pubkeyHex, 'hex'));
-  const tx = new Transaction();
-  tx.moveCall({
-    target: `${a.lend.package}::${a.lend.module}::register_collateral_attester`,
-    typeArguments: [typeQ, typeS],
-    arguments: [tx.object(adminCap), tx.object(pool), tx.pure.vector('u8', pubkey)],
-  });
-  return tx;
-}
+// NOTE: register_collateral_attester is GONE in floe_lend V2. Collateral valuations are now
+// verified against the on-chain Enclave<FLOE_NAV> object (a.nav.enclave) via enclave::verify_signature
+// — PCR-anchored, no per-pool attester to register, and a new enclave boot is picked up automatically.
 
 // Recipient for produced objects. Node callers (with a signer) can omit it; browser callers
 // (dapp-kit signs, the client has no signer) MUST pass the connected address explicitly —
@@ -134,7 +123,7 @@ export function lockAndBorrow(
     target: `${a.lend.package}::${a.lend.module}::lock_and_borrow`,
     typeArguments: [typeQ, typeS],
     arguments: [
-      tx.object(pool), collateral, tx.pure.u64(borrowAmount),
+      tx.object(pool), tx.object(a.nav.enclave), collateral, tx.pure.u64(borrowAmount),
       tx.pure.address(v.vaultId), tx.pure.u64(v.navLowerBound), tx.pure.u64(v.shareSupply),
       tx.pure.u64(v.timestampMs), tx.pure.vector('u8', v.signature), tx.object(a.clock),
     ],
@@ -170,7 +159,7 @@ export function liquidate(
     target: `${a.lend.package}::${a.lend.module}::liquidate`,
     typeArguments: [typeQ, typeS],
     arguments: [
-      tx.object(pool), tx.object(position), tx.object(repaymentCoinId),
+      tx.object(pool), tx.object(position), tx.object(repaymentCoinId), tx.object(a.nav.enclave),
       tx.pure.address(v.vaultId), tx.pure.u64(v.navLowerBound), tx.pure.u64(v.shareSupply),
       tx.pure.u64(v.timestampMs), tx.pure.vector('u8', v.signature), tx.object(a.clock),
     ],
@@ -263,7 +252,8 @@ export async function fetchSignedValuation(
     navLowerBound,
     shareSupply,
     timestampMs: BigInt(j.response.timestamp_ms),
-    signature: j.signature,
+    // enclave returns the ed25519 signature as a hex string; the PTB needs raw bytes
+    signature: Array.from(fromHex(String(j.signature).replace(/^0x/, ''))),
   };
 }
 
@@ -289,7 +279,7 @@ export function borrowAndTradePredict(
     target: `${a.lend.package}::${a.lend.module}::lock_and_borrow`,
     typeArguments: [typeQ, typeS],
     arguments: [
-      tx.object(pool), collateral, tx.pure.u64(borrowAmount),
+      tx.object(pool), tx.object(a.nav.enclave), collateral, tx.pure.u64(borrowAmount),
       tx.pure.address(v.vaultId), tx.pure.u64(v.navLowerBound), tx.pure.u64(v.shareSupply),
       tx.pure.u64(v.timestampMs), tx.pure.vector('u8', v.signature), tx.object(a.clock),
     ],

@@ -19,7 +19,7 @@ async function liveFns(pkg: string, mod: string): Promise<string[]> {
   const nav = await liveFns(a.nav.package, 'floe_nav');
   for (const f of ['verify_nav','verify_vol_attested','verify_collateral_attested','verify_risk_attested']) { const ok = nav.includes(f); if (!ok) fail = true; console.log(`  ${ok ? '✓' : '✗ MISSING'} floe_nav::${f}`); }
   const lend = await liveFns(a.lend.package, a.lend.module);
-  for (const f of ['create_pool','supply','supply_more','withdraw','lock_and_borrow','repay','liquidate','register_collateral_attester','collect_reserves']) {
+  for (const f of ['create_pool','supply','supply_more','withdraw','lock_and_borrow','repay','liquidate','collect_reserves']) {
     const ok = lend.includes(f); if (!ok) fail = true; console.log(`  ${ok ? '\u2713' : '\u2717 MISSING'} floe_lend::${f}`);
   }
   console.log(fail ? '\nSDK VERIFY: FAIL' : '\nSDK VERIFY: OK');

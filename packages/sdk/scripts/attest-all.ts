@@ -14,7 +14,7 @@
  */
 import { writeFileSync } from "node:fs";
 import { Transaction } from "@mysten/sui/transactions";
-import { FloeClient, FloeLend, Vol } from "../src/index.ts";
+import { FloeClient, Vol } from "../src/index.ts";
 import {
   A, DUSDC, ENCLAVE, PCR0, VAULTS, clientFor, addrFor, floeFounder,
   hexBytes, resolveCap, signHeartbeat, readVaultPlp, type VaultRef,
@@ -72,16 +72,9 @@ for (const v of VAULTS) {
   console.log(`✓ attested (plp_held ${plpHeld}) ${digest}`);
 }
 
-// ── 2) Floe Lend collateral attester (enables attested-collateral borrow) ──
-// refPool is the live Stratos Pool<DUSDC, SHARE>; registerCollateralAttester builds the tx.
-try {
-  const tx = FloeLend.registerCollateralAttester(floeFounder, A.lend.adminCap, A.lend.refPool, pubkey.replace(/^0x/, ""), DUSDC, A.refVaultSType);
-  const d = await exec(floeFounder, tx, "lend collateral attester");
-  out["lend:collateralAttester"] = d;
-  console.log(`✓ lend collateral attester registered ${d}`);
-} catch (e) {
-  console.warn(`⚠ lend collateral attester: ${(e as Error).message}`);
-}
+// ── 2) Floe Lend (V2): nothing to register per boot. Collateral valuations verify against the
+// on-chain Enclave<FLOE_NAV> object via enclave::verify_signature — refresh that object's key
+// instead (scripts/refresh-enclave.ts), which simultaneously serves NAV-proof + lend + vol.
 
 // ── 3) Attested vol oracle (intent 2) — refresh index, sign it, register + submit ──
 try {
@@ -107,4 +100,4 @@ try {
 writeFileSync(new URL("./attest-all-result.json", import.meta.url), JSON.stringify({ at: new Date().toISOString(), enclaveUrl: ENCLAVE, pubkey, pcr0: PCR0, digests: out }, null, 2));
 console.log("\n✓ done — all 5 vaults attested. Artifact: packages/sdk/scripts/attest-all-result.json");
 console.log("  Idle vaults stay verified; run heartbeat.ts to keep any PLP-holding vault fresh.");
-console.log(`\n⚠ Update constants.ts nav.attesterPubkey + lend.attesterPubkey to: ${pubkey}`);
+console.log(`\n⚠ Also refresh the Enclave<FLOE_NAV> object to this boot's key (lend + NAV-proof): pubkey ${pubkey}`);

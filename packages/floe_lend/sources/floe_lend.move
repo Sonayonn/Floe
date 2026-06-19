@@ -8,21 +8,23 @@
 /// value is NOT supplied by the (untrusted) borrower nor read from a manipulable market oracle.
 /// It must arrive as an ENCLAVE-SIGNED valuation: the same Nautilus TEE that attests Floe NAV
 /// signs a CollateralPayload (intent 3) over (vault_id, nav_lower_bound, share_supply, timestamp).
-/// floe_lend SELF-VERIFIES that ed25519 signature (no external package dependency — the floe_vol
-/// pattern) before accepting the value. A borrower CANNOT forge it, so collateral cannot be
-/// over-valued. Liquidations run on a value that is cryptographically certified, fresh, and
-/// derived from the vault's un-inflatable NAV floor. This is only possible because Floe's NAV is
-/// hardware-attested — it is the lending market's security mechanism, not a decoration.
+/// floe_lend verifies that signature through the on-chain Enclave<FLOE_NAV> object via
+/// enclave::verify_signature — the SAME PCR-anchored root of trust floe_nav uses. The trust anchor
+/// is the TYPE: only floe_nav (which owns the FLOE_NAV one-time witness) can mint an
+/// Enclave<FLOE_NAV>, and only after the on-chain attestation/PCR check passes — so a borrower
+/// cannot substitute their own enclave, there is no admin-registered pubkey to trust, and a new
+/// enclave boot is picked up automatically (same shared object NAV + vol consume). A borrower
+/// CANNOT forge the value, so collateral cannot be over-valued. Liquidations run on a value that is
+/// cryptographically certified, fresh, and derived from the vault's un-inflatable NAV floor.
 module floe_lend::floe_lend;
 
 use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin};
 use sui::clock::Clock;
 use sui::event;
-use sui::ed25519;
-use sui::dynamic_field as df;
-use std::bcs;
 use std::option;
+use enclave::enclave::{Self, Enclave};
+use floe_nav::floe_nav::FLOE_NAV;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const INDEX_SCALE: u128 = 1_000_000_000_000_000_000;   // 1e18 fixed-point interest indices
@@ -38,11 +40,9 @@ const EExceedsLtv: u64 = 1;
 const EPositionHealthy: u64 = 2;
 const EZeroAmount: u64 = 3;
 const EWrongPool: u64 = 4;
-const ENoCollateralAttester: u64 = 5;
 const EBadValuationSig: u64 = 6;
 const EStaleValuation: u64 = 7;
 const EValuationWrongVault: u64 = 8;
-const EAttesterSet: u64 = 9;
 
 // ─── Core objects ────────────────────────────────────────────────────────────
 
@@ -65,7 +65,8 @@ public struct LendingPool<phantom Q, phantom S> has key {
     liq_threshold_bps: u64,
     liq_bonus_bps: u64,
     accrued_reserves: u64,
-    collateral_attester: vector<u8>, // enclave ed25519 pubkey that signs valuations (32 bytes)
+    // No stored attester: collateral valuations are verified against the on-chain Enclave<FLOE_NAV>
+    // object (PCR-anchored) at call time — see verify_and_price. Nothing to register, nothing to trust.
 }
 
 /// A lender's claim; principal grows implicitly via supply_index.
@@ -114,7 +115,6 @@ public fun create_pool<Q, S>(_admin: &LendAdminCap, vault_id: ID, ctx: &mut TxCo
         liq_threshold_bps: 8000,
         liq_bonus_bps: 500,
         accrued_reserves: 0,
-        collateral_attester: vector[],
     };
     let pid = object::id(&pool);
     event::emit(PoolCreated { pool_id: pid, vault_id });
@@ -122,40 +122,39 @@ public fun create_pool<Q, S>(_admin: &LendAdminCap, vault_id: ID, ctx: &mut TxCo
     pid
 }
 
-/// Register the enclave attester pubkey that signs collateral valuations (once, admin-gated).
-public fun register_collateral_attester<Q, S>(
-    _admin: &LendAdminCap, pool: &mut LendingPool<Q, S>, pubkey: vector<u8>,
-) {
-    assert!(pubkey.length() == 32, EBadValuationSig);
-    assert!(pool.collateral_attester.length() == 0, EAttesterSet);
-    pool.collateral_attester = pubkey;
+// ─── Attested collateral valuation: the Floe edge ────────────────────────────
+/// The CollateralPayload the enclave signs (intent 3). Field-for-field BCS match with the Rust
+/// signer (floe-nav/mod.rs CollateralPayload): address + u64 + u64.
+public struct CollateralValuation has copy, drop {
+    vault_id: address,
+    nav_lower_bound: u64,
+    share_supply: u64,
 }
 
-// ─── Attested collateral valuation: the Floe edge ────────────────────────────
 /// Verify an enclave-signed CollateralPayload (intent 3) and return the attested collateral
-/// VALUE-PER-SHARE-UNIT (in Q, 6dp). The enclave signs BCS(IntentMessage{intent=3, timestamp,
-/// payload{vault_id, nav_lower_bound, share_supply}}) — the SAME create_intent_message layout
-/// the NAV/vol attestations use (intent || timestamp || payload). floe_lend self-verifies the
-/// ed25519 sig against the registered attester, checks freshness + vault binding, then derives
-/// the un-inflatable lower-bound share price. Caller CANNOT forge the value.
+/// VALUE-PER-SHARE-UNIT (in Q, 6dp). Verification goes through the on-chain Enclave<FLOE_NAV>
+/// object via enclave::verify_signature — the SAME PCR-anchored root of trust floe_nav uses.
+/// The TYPE Enclave<FLOE_NAV> is the trust anchor: only floe_nav can mint one (it owns the
+/// FLOE_NAV OTW) and only after the on-chain attestation/PCR check — so the signer is provably
+/// the genuine, measured Floe enclave. No admin-registered pubkey, nothing to trust on our word.
+/// Also checks vault binding + freshness, then derives the un-inflatable lower-bound share price.
 fun verify_and_price<Q, S>(
-    pool: &LendingPool<Q, S>,
+    pool: &LendingPool<Q, S>, enclave: &Enclave<FLOE_NAV>,
     vault_id: address, nav_lower_bound: u64, share_supply: u64,
     timestamp_ms: u64, signature: vector<u8>, clock: &Clock,
 ): u64 {
-    assert!(pool.collateral_attester.length() == 32, ENoCollateralAttester);
     // vault binding: the signed valuation must be for THIS pool's vault
     assert!(vault_id == object::id_to_address(&pool.vault_id), EValuationWrongVault);
     // freshness
     let now = clock.timestamp_ms();
     assert!(timestamp_ms <= now && now - timestamp_ms <= VALUATION_FRESH_MS, EStaleValuation);
-    // reconstruct the signed message: intent(1) || timestamp(8) || payload, matching the enclave
-    let mut msg = vector<u8>[COLLATERAL_INTENT];
-    msg.append(bcs::to_bytes(&timestamp_ms));
-    msg.append(bcs::to_bytes(&vault_id));
-    msg.append(bcs::to_bytes(&nav_lower_bound));
-    msg.append(bcs::to_bytes(&share_supply));
-    assert!(ed25519::ed25519_verify(&signature, &pool.collateral_attester, &msg), EBadValuationSig);
+    // PCR-anchored verification: enclave::verify_signature rebuilds the intent message
+    // (intent || timestamp || BCS(payload)) and checks it against the Enclave object's attested key.
+    let payload = CollateralValuation { vault_id, nav_lower_bound, share_supply };
+    let ok = enclave::verify_signature<FLOE_NAV, CollateralValuation>(
+        enclave, COLLATERAL_INTENT, timestamp_ms, payload, &signature,
+    );
+    assert!(ok, EBadValuationSig);
     // un-inflatable lower-bound price per share unit (6dp)
     if (share_supply == 0) return 0;
     mul_div(nav_lower_bound, SHARE_PRICE_SCALE, share_supply)
@@ -315,6 +314,7 @@ public fun current_supply_value<Q, S>(pool: &LendingPool<Q, S>, pos: &SupplyPosi
 /// borrower CANNOT over-value their collateral. Borrow is capped at ltv_bps of attested value.
 public fun lock_and_borrow<Q, S>(
     pool: &mut LendingPool<Q, S>,
+    enclave: &Enclave<FLOE_NAV>,
     collateral: Coin<S>,
     borrow_amount: u64,
     // attested valuation (enclave-signed): for THIS pool's vault, fresh
@@ -329,7 +329,7 @@ public fun lock_and_borrow<Q, S>(
 
     // verify the enclave-signed valuation -> un-inflatable price per share unit
     let price = verify_and_price(
-        pool, vault_id, nav_lower_bound, share_supply, valuation_ts_ms, valuation_sig, clock,
+        pool, enclave, vault_id, nav_lower_bound, share_supply, valuation_ts_ms, valuation_sig, clock,
     );
     let collateral_val = collateral_value(price, collateral_amount);
     // borrow cap = LTV * attested collateral value
@@ -387,11 +387,11 @@ public fun repay<Q, S>(
 /// Health factor in bps: (collateral_value * liq_threshold) / debt. >10000 = healthy, <10000 = liquidatable.
 /// Caller supplies a fresh attested valuation (same as borrow).
 public fun health_factor_bps<Q, S>(
-    pool: &LendingPool<Q, S>, pos: &DebtPosition<Q, S>,
+    pool: &LendingPool<Q, S>, pos: &DebtPosition<Q, S>, enclave: &Enclave<FLOE_NAV>,
     vault_id: address, nav_lower_bound: u64, share_supply: u64,
     valuation_ts_ms: u64, valuation_sig: vector<u8>, clock: &Clock,
 ): u64 {
-    let price = verify_and_price(pool, vault_id, nav_lower_bound, share_supply, valuation_ts_ms, valuation_sig, clock);
+    let price = verify_and_price(pool, enclave, vault_id, nav_lower_bound, share_supply, valuation_ts_ms, valuation_sig, clock);
     let col_amount = balance::value(&pos.collateral);
     let col_val = collateral_value(price, col_amount);
     let debt = current_debt(pool, pos);
@@ -408,6 +408,7 @@ public fun health_factor_bps<Q, S>(
 /// market-oracle manipulation can trigger an unjust liquidation.
 public fun liquidate<Q, S>(
     pool: &mut LendingPool<Q, S>, pos: DebtPosition<Q, S>, mut repayment: Coin<Q>,
+    enclave: &Enclave<FLOE_NAV>,
     // attested valuation for THIS pool's vault, fresh
     vault_id: address, nav_lower_bound: u64, share_supply: u64,
     valuation_ts_ms: u64, valuation_sig: vector<u8>,
@@ -417,7 +418,7 @@ public fun liquidate<Q, S>(
     accrue(pool, clock);
 
     let price = verify_and_price(
-        pool, vault_id, nav_lower_bound, share_supply, valuation_ts_ms, valuation_sig, clock,
+        pool, enclave, vault_id, nav_lower_bound, share_supply, valuation_ts_ms, valuation_sig, clock,
     );
     let col_amount = balance::value(&pos.collateral);
     let col_val = collateral_value(price, col_amount);

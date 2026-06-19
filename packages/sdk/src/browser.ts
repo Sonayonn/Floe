@@ -7,7 +7,7 @@ export { listVaults, type VaultSummary } from './registry/read.ts';
 export { buildDepositTx, buildWithdrawTx, type VaultTxBase } from './vault/tx.ts';
 
 // Floe Lend — attested-collateral money market. Browser-safe reads + tx builders.
-// (registerCollateralAttester is admin-only Node tooling; harmless if unused in browser.)
+// (V2: collateral valuations verify against the on-chain Enclave<FLOE_NAV> object — no attester to register.)
 export {
   poolState, fetchSignedValuation,
   supply, withdraw, lockAndBorrow, repay, liquidate, borrowAndTradePredict,

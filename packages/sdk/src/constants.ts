@@ -25,7 +25,7 @@ export const FLOE_ADDRESSES = {
       enclavePackage:  '0x8ecf22e78c90c3e32833d76d82415d7e4227ea370bec4efdad4c4830cbda9e49',
       cap:             '0xe84af0541528abaa11123a2b5a9c9cbee0c4ac18104c4ca3f1a6b3050cb72c9f',
       enclaveConfig:   '0x34e27a1bb7034cc6734c59b631e2362ef5515cd9d139871d8653c584825b7402',
-      enclave:         '0x23f37e2f2f642d1e1c11c1cb94ab98156b1a8943d28775dac62a4ea4a24783fd', // live (b4d53224 enclave — +sign_collateral)
+      enclave:         '0x4f8be2764a4753786e9e71c15d2c04d55c2bc7fdb43c67276d0b4ae5a1853e71', // live Enclave<FLOE_NAV> (b4d53224 PCR0, key 62d858a4 — 2026-06-19 boot)
       otwType:         '0xc9bae1737b1744108491f6c4d7c87128520d6b61151d9e3bc23c262cbc0026e0::floe_nav::FLOE_NAV',
       navIntent: 1,
       volIntent: 2,
@@ -42,15 +42,16 @@ export const FLOE_ADDRESSES = {
 
     // Floe Lend — attested-collateral money market (SHARE as productive collateral)
     lend: {
-      package:           '0x5135151fc146fff78fe52845d683e355453e86d1ae1d5adb5d6b19a3c878b992',
+      // V2 (PCR-anchored): collateral valuations verify against the on-chain Enclave<FLOE_NAV>
+      // object (nav.enclave) via enclave::verify_signature — no stored attester, picks up every
+      // enclave boot automatically. Fresh publish (prior stored-pubkey pkg 0x5135… superseded).
+      package:           '0xf6369fc6efee055518be693cf8d3e084ca5a21a9f7a2f21ab855514cb95d7686',
       module:            'floe_lend',
       collateralIntent:  3,     // CollateralPayload — same intent as floe_nav
-      // reuses the LIVE enclave attester (proved on Nitro HW). register on each pool.
-      attesterPubkey:    'f068812694d6dfd26f9d9b29ad325d38e334bfe2ad90e1bb1eee7c3da87f058c',
       valuationFreshMs:  600000, // 10-min window (matches VALUATION_FRESH_MS)
-      adminCap:          '0x814292c8ba43a489032e162ba2dc642eb01f35aec9752d1ecbe293c9eb3dfaa9',
-      upgradeCap:        '0x90f9c8dd12a9ea47b95ac193918ca78d4754cf506e62d6e87ac0566fd34fad72',
-      refPool:           '0x7c929f24cb579c7c86fec0b29f8b1496a7f4f565e3e6755b5136bca2f81754a7', // live Stratos<DUSDC,SHARE> pool
+      adminCap:          '0xc7e570ce2ddbf070e49526696e01c8ff3105b1f592848b8062e52fba2bd07137',
+      upgradeCap:        '0x3c5edadf6c792b6c319b3905d7c0929a34ab1b571dcea7f5dec173048c4eaf6d',
+      refPool:           '0xb7f52aa9dca2223c77b21b2438483814f7950661c6faf1ef05cb1d8e2ddb2f03', // Stratos<DUSDC,SHARE> pool (V2 pkg, seeded 1 dUSDC)
     },
 
     // DeepBook Predict (flagship venue + the vol oracle source)
