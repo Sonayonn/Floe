@@ -82,11 +82,46 @@ export async function signHeartbeat(vaultId: string, plpPrice: bigint, plpHeld: 
   return res.json() as Promise<HeartbeatSig>;
 }
 
-/** Read a vault's live plp_held + cached plp_price (drives idle-vs-PLP handling). */
+/** Read a vault's ACTUAL PLP custody (the PlpKey balance), not the `plp_held` counter — the
+ *  on-chain counter can drift from real custody (it's set by the operator, unsigned). The PlpKey
+ *  dynamic-field key is tagged with whichever package version was live when it was created, which
+ *  varies across upgrades, so we enumerate and suffix-match rather than hardcode the address. */
+export async function readPlpCustody(vaultId: string): Promise<bigint> {
+  let cursor: string | null | undefined = null;
+  for (;;) {
+    const page: any = await floeFounder.sui.getDynamicFields({ parentId: vaultId, cursor });
+    for (const fld of page.data ?? []) {
+      if (String(fld.name?.type ?? "").endsWith("::floe::PlpKey")) {
+        const obj: any = await floeFounder.sui.getObject({ id: fld.objectId, options: { showContent: true } });
+        const val = obj.data?.content?.fields?.value;
+        // Balance<PLP> surfaces as a bare u64 here; tolerate a nested { value } just in case.
+        return BigInt(typeof val === "object" && val !== null ? (val.value ?? val.fields?.value ?? 0) : (val ?? 0));
+      }
+    }
+    if (!page.hasNextPage) break;
+    cursor = page.nextCursor;
+  }
+  return 0n; // no PLP custody → idle vault
+}
+
+/** Correct PLP price in 9dp (PLP_PRICE_SCALE), derived from the predict pool's own accounting:
+ *  price = quote backing / PLP supply. This is the LP NAV-per-share the vault would redeem at;
+ *  it is what `plp_price_cached` must hold so `current_nav` values PLP correctly. */
+export async function plpPoolPrice(): Promise<bigint> {
+  const o: any = await floeFounder.sui.getObject({ id: A.predict.object, options: { showContent: true } });
+  const f = o.data?.content?.fields ?? {};
+  const balance = BigInt(f.vault?.fields?.balance ?? 0);                              // dUSDC backing the pool
+  const supply  = BigInt(f.treasury_cap?.fields?.total_supply?.fields?.value ?? 0);   // PLP in circulation
+  if (supply === 0n) return 1_000_000_000n; // empty pool → par (1.0 @ 9dp)
+  return (balance * 1_000_000_000n) / supply;                                         // 9dp price
+}
+
+/** Read a vault's live plp_held (REAL custody) + cached plp_price (drives idle-vs-PLP handling). */
 export async function readVaultPlp(vaultId: string): Promise<{ plpHeld: bigint; plpPrice: bigint }> {
   const o: any = await floeFounder.sui.getObject({ id: vaultId, options: { showContent: true } });
   const f = o.data?.content?.fields ?? {};
-  return { plpHeld: BigInt(f.plp_held ?? 0), plpPrice: BigInt(f.plp_price_cached ?? 0) };
+  const plpHeld = await readPlpCustody(vaultId); // real PLP balance, not the drift-prone counter
+  return { plpHeld, plpPrice: BigInt(f.plp_price_cached ?? 0) };
 }
 
 if (!ENCLAVE) throw new Error("FLOE_ENCLAVE_URL is not set — point it at the live enclave (e.g. http://<ec2-ip>:3000)");

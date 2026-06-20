@@ -9,6 +9,9 @@ use floe::floe::{Self as vault, Vault, OwnerCap, CuratorCap, VaultRegistry, Agen
 
 public struct TUSD has drop {}
 
+/// Stand-in for a Cetus Position NFT (key + store) — proves the generic CLMM-position custody.
+public struct FakePos has key, store { id: UID }
+
 const ADMIN: address = @0xA;
 const USER: address = @0xB;
 const CURATOR: address = @0xA;
@@ -355,6 +358,95 @@ fun test_settlement_aware_lower_bound_rises() {
     ts::end(sc);
 }
 
+
+// ─── Cetus / generic CLMM position custody ───────────────────────────────────
+#[test]
+fun test_cetus_position_custody_and_nav() {
+    let mut sc = ts::begin(ADMIN);
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 0, &mut sc);
+    next_tx(&mut sc, USER);
+    let exec = ts::take_from_address<vault::ExecCap>(&sc, ADMIN);
+    {
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        let clk = clock::create_for_testing(ctx(&mut sc));
+        let shares = vault::deposit(&mut v, mint_tusd(10_000_000, &mut sc), &clk, ctx(&mut sc));
+        assert!(vault::test_total_assets(&v) == 10_000_000, 0);
+
+        // custody a position valued at 3M (as if 3M idle were deployed into the LP)
+        let pos = FakePos { id: object::new(ctx(&mut sc)) };
+        vault::store_cetus_position(&mut v, &exec, pos, 3_000_000);
+        assert!(vault::has_cetus_position(&v), 1);
+        assert!(vault::cetus_value(&v) == 3_000_000, 2);
+        // NAV counts the sleeve...
+        assert!(vault::test_total_assets(&v) == 13_000_000, 3);
+        // ...but the trustless floor does NOT (it's a mark, like positions_mark_total)
+        assert!(vault::nav_lower_bound(&v) == 10_000_000, 4);
+
+        // re-mark the sleeve (price moved up)
+        vault::mark_cetus_value(&mut v, &exec, 3_500_000);
+        assert!(vault::test_total_assets(&v) == 13_500_000, 5);
+
+        // exit: position comes back out, value zeroes, NAV returns to floor
+        let back: FakePos = vault::take_cetus_position(&mut v, &exec);
+        assert!(!vault::has_cetus_position(&v), 6);
+        assert!(vault::cetus_value(&v) == 0, 7);
+        assert!(vault::test_total_assets(&v) == 10_000_000, 8);
+
+        let FakePos { id } = back; object::delete(id);
+        destroy(shares);
+        clock::destroy_for_testing(clk);
+        ts::return_shared(v);
+    };
+    ts::return_to_address(ADMIN, exec);
+    destroy(op); destroy(cur);
+    ts::end(sc);
+}
+
+// ─── Lend sleeve custody: HARD value -> counts in the trustless floor ─────────
+#[test]
+fun test_lend_sleeve_counts_in_floor() {
+    let mut sc = ts::begin(ADMIN);
+    new_registry(&mut sc);
+    next_tx(&mut sc, ADMIN);
+    let (op, cur) = setup_vault(0, 0, &mut sc);
+    next_tx(&mut sc, USER);
+    let exec = ts::take_from_address<vault::ExecCap>(&sc, ADMIN);
+    {
+        let mut v = ts::take_shared<Vault<TUSD, TEST_SHARE>>(&sc);
+        let clk = clock::create_for_testing(ctx(&mut sc));
+        let shares = vault::deposit(&mut v, mint_tusd(10_000_000, &mut sc), &clk, ctx(&mut sc));
+        assert!(vault::nav_lower_bound(&v) == 10_000_000, 0);
+
+        // custody a lend supply position valued at 3M (as if 3M idle were supplied)
+        let pos = FakePos { id: object::new(ctx(&mut sc)) };
+        vault::store_lend_position(&mut v, &exec, pos, 3_000_000);
+        assert!(vault::has_lend_position(&v), 1);
+        assert!(vault::lend_value(&v) == 3_000_000, 2);
+        // NAV counts it AND — unlike a Cetus mark — so does the trustless floor (it's hard value)
+        assert!(vault::test_total_assets(&v) == 13_000_000, 3);
+        assert!(vault::nav_lower_bound(&v) == 13_000_000, 4);
+
+        // interest accrues -> re-mark up; floor rises with it
+        vault::mark_lend_value(&mut v, &exec, 3_200_000);
+        assert!(vault::nav_lower_bound(&v) == 13_200_000, 5);
+
+        // exit: position out, value zeroes, floor back to idle
+        let back: FakePos = vault::take_lend_position(&mut v, &exec);
+        assert!(!vault::has_lend_position(&v), 6);
+        assert!(vault::lend_value(&v) == 0, 7);
+        assert!(vault::nav_lower_bound(&v) == 10_000_000, 8);
+
+        let FakePos { id } = back; object::delete(id);
+        destroy(shares);
+        clock::destroy_for_testing(clk);
+        ts::return_shared(v);
+    };
+    ts::return_to_address(ADMIN, exec);
+    destroy(op); destroy(cur);
+    ts::end(sc);
+}
 
 // ─── Async redemption (ERC-7540-style request/fulfill/claim) ─────────────────
 #[test]

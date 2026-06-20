@@ -41,7 +41,11 @@ pub mod app {
 
 pub mod common;
 
-/// App state, at minimum needs to maintain the ephemeral keypair.  
+// Floe: stable KMS-sealed signing key (floe-nav only) — see src/sealed_key.rs.
+#[cfg(feature = "floe-nav")]
+pub mod sealed_key;
+
+/// App state, at minimum needs to maintain the ephemeral keypair.
 pub struct AppState {
     /// Ephemeral keypair on boot
     pub eph_kp: Ed25519KeyPair,

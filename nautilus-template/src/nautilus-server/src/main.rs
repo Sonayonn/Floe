@@ -21,6 +21,11 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // floe-nav: recover a STABLE signing key sealed under KMS (same pubkey across reboots → no on-chain
+    // churn). Other builds keep the ephemeral-per-boot key. See src/sealed_key.rs.
+    #[cfg(feature = "floe-nav")]
+    let eph_kp = nautilus_server::sealed_key::load_or_init().await?;
+    #[cfg(not(feature = "floe-nav"))]
     let eph_kp = Ed25519KeyPair::generate(&mut rand::thread_rng());
 
     // This API_KEY value can be stored with secret-manager. To do that, follow the prompt `sh configure_enclave.sh`

@@ -4,6 +4,7 @@ import {
   Layers, Activity, Landmark, ArrowUpRight,
 } from "lucide-react";
 import { useVaults } from "@/lib/hooks/useVaults";
+import { useVol, volPct } from "@/lib/hooks/useVol";
 import { ProofBadge, type VaultSafety } from "@/components/ui/ProofBadge";
 import { OfficialBadge } from "@/components/ui/OfficialBadge";
 import { isOfficial } from "@/lib/official";
@@ -58,6 +59,8 @@ const CONSUMERS = [
 
 export default function VerifyPage() {
   const { data: vaults, isLoading, error } = useVaults();
+  const { data: vol } = useVol();
+  const volBps = vol ? (vol.liveBps > 0n ? vol.liveBps : vol.indexBps) : 0n;
   const rows = vaults ?? [];
   const attested = rows.filter((v) => v.attested).length;
   const verified = rows.filter((v) => v.navSafetyLabel === "verified").length;
@@ -76,6 +79,7 @@ export default function VerifyPage() {
         </div>
         <div className="kpi-strip">
           <div className="kpi"><span className="kpi__k">Registered enclave</span><span className="kpi__v kpi__v--accent">Live</span></div>
+          <div className="kpi"><span className="kpi__k">Floe Index · BTC ATM IV</span><span className="kpi__v kpi__v--accent">{volBps > 0n ? volPct(volBps) : "—"}</span></div>
           <div className="kpi"><span className="kpi__k">Intents proven</span><span className="kpi__v">3 / 4</span></div>
           <div className="kpi"><span className="kpi__k">Vaults attested</span><span className="kpi__v">{rows.length ? `${attested}/${rows.length}` : "—"}</span></div>
         </div>
@@ -242,6 +246,18 @@ export default function VerifyPage() {
               <span className="vf-consumer__t">{c.t}</span>
               <span className="vf-consumer__fn">{c.fn}</span>
               <span className="vf-consumer__d">{c.d}</span>
+              {c.t === "Volatility index" && volBps > 0n && (
+                <span className="vf-consumer__live" style={{
+                  display: "inline-flex", alignItems: "center", gap: 6, margin: "2px 0 4px",
+                  fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--accent)",
+                }}>
+                  <span style={{
+                    width: 6, height: 6, borderRadius: "50%", background: "var(--accent)",
+                    boxShadow: "0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent)",
+                  }} />
+                  {volPct(volBps)} live · BTC ATM IV{vol && !vol.fresh ? " · index re-attesting" : ""}
+                </span>
+              )}
               <span className="vf-consumer__link">View on-chain <ArrowUpRight size={13} /></span>
             </a>
           ))}

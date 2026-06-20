@@ -16,11 +16,13 @@ import { LiquidityEarnings } from "@/components/ui/LiquidityEarnings";
 import { YieldComposition } from "@/components/ui/YieldComposition";
 import { AttestationFeed } from "@/components/ui/AttestationFeed";
 import { DepositPanel } from "@/components/ui/DepositPanel";
+import { DeployPanel } from "@/components/ui/DeployPanel";
 import { deriveAllocations, vaultVenues } from "@/lib/allocations";
 import { isHidden } from "@/lib/hidden";
 import { isOfficial } from "@/lib/official";
 import { fmt6, shortAddr } from "@/lib/format";
-import { FLOE_ADDRESSES } from "@floe/sdk/browser";
+import { useVol } from "@/lib/hooks/useVol";
+import { FLOE_ADDRESSES, estimateApy, apyPct } from "@floe/sdk/browser";
 
 const Q = FLOE_ADDRESSES.testnet.refVaultQType;
 const S = FLOE_ADDRESSES.testnet.refVaultSType;
@@ -37,6 +39,8 @@ export default function VaultDetail({ params }: { params: Promise<{ vaultId: str
   // pull them from the (cached) vaults list so the header isn't a generic "Vault".
   const { data: vaults } = useVaults();
   const meta = vaults?.find((r) => r.vaultId === vaultId);
+  // Live implied vol → forward APY projection (range-premium harvest scales with IV).
+  const { data: vol } = useVol();
 
   // All hooks above run unconditionally; guard renders only after them (the effect redirects).
   if (isHidden(vaultId)) return null;
@@ -53,11 +57,18 @@ export default function VaultDetail({ params }: { params: Promise<{ vaultId: str
   const venuePhrase = venues.map((vn) => vn.name).join(" + ");
   const mgmtPct = (Number(v.managementFeeBps) / 100).toFixed(2);
   const perfPct = (Number(v.performanceFeeBps) / 100).toFixed(2);
+  const ivBps = Number(vol?.liveBps || vol?.indexBps || 0n) || undefined;
+  const apy = estimateApy(strategyKind, {
+    ivBps,
+    managementFeeBps: v.managementFeeBps,
+    performanceFeeBps: v.performanceFeeBps,
+  });
 
   const overview = (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-7)" }}>
       <LiquidityEarnings vaultId={vaultId} live={v} />
       <div className="floe-hero__statgrid">
+        <StatBlock label="Est. APY" value={apyPct(apy.apyBps)} size={30} accent sub="forward · net of fees" />
         <StatBlock label="NAV" value={fmt6(v.nav)} size={30} sub="total assets · 6dp" />
         <StatBlock label="Proven floor" value={fmt6(v.navLowerBound)} size={30} accent sub={`${v.pctCertain.toFixed(1)}% certain`} />
         <StatBlock label="Share price" value={fmt6(v.sharePrice)} size={30} sub="per flShare" />
@@ -70,17 +81,19 @@ export default function VaultDetail({ params }: { params: Promise<{ vaultId: str
         </p>
       </div>
       <div className="floe-panel" style={{ padding: 20 }}>
-        <div className="floe-panel__title" style={{ marginBottom: 14 }}>Yield composition</div>
+        <div className="floe-panel__title" style={{ marginBottom: 14 }}>Yield composition · est. APY</div>
         <YieldComposition
           lines={[
-            { label: "Gross strategy yield", value: "—", tone: "pos" },
+            { label: "Gross strategy yield", value: apyPct(apy.grossBps), tone: "pos" },
             { label: `Management fee (${mgmtPct}%)`, value: `-${mgmtPct}%`, tone: "neg" },
             { label: `Performance fee (${perfPct}%)`, value: `-${perfPct}%`, tone: "neg" },
           ]}
-          net={{ label: "Net to depositor", value: "tracked on-chain" }}
+          net={{ label: "Net est. APY", value: apyPct(apy.apyBps) }}
         />
         <p style={{ fontSize: 11.5, color: "var(--text-subtle)", marginTop: 12, lineHeight: 1.5 }}>
-          Returns accrue as share-price growth. APY figures are shown with their window and net of fees — never a headline number without context.
+          A forward projection blended across the strategy mandate ({apy.components.map((c) => c.label).join(" · ")}),
+          priced off the live Floe implied-vol index ({(apy.ivBps / 100).toFixed(1)}%) and shown net of fees — a comparison
+          basis, not a guarantee. Realized returns accrue on-chain as share-price growth.
         </p>
       </div>
     </div>
@@ -139,7 +152,10 @@ export default function VaultDetail({ params }: { params: Promise<{ vaultId: str
         </div>
         <Tabs tabs={[{ label: "Overview", content: overview }, { label: "Verify", content: verify }, { label: "Vault Info", content: info }]} />
       </div>
-      <DepositPanel vault={v} qType={Q} sType={S} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, position: "sticky", top: 84, alignSelf: "start" }}>
+        <DepositPanel vault={v} qType={Q} sType={S} />
+        <DeployPanel vault={v} qType={Q} sType={S} />
+      </div>
     </div>
   );
 }

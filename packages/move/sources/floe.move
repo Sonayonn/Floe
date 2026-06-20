@@ -563,7 +563,9 @@ public fun vault_count(registry: &VaultRegistry): u64 { registry.vaults.length()
 public fun total_assets<Q, S>(vault: &Vault<Q, S>): u64 {
     let idle = balance::value(&vault.idle);
     let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, PLP_PRICE_SCALE);
-    idle + plp_value + vault.positions_mark_total + settled_total(vault)
+    // cetus_value is a mark (excluded from nav_lower_bound, like positions_mark_total);
+    // lend_value is HARD (principal × monotonic index) so it also counts in the floor below.
+    idle + plp_value + vault.positions_mark_total + settled_total(vault) + cetus_value(vault) + lend_value(vault)
 }
 
 // ─── NAV safety: the circuit breaker ─────────────────────────────────────────
@@ -580,8 +582,10 @@ public fun total_assets<Q, S>(vault: &Vault<Q, S>): u64 {
 public fun nav_lower_bound<Q, S>(vault: &Vault<Q, S>): u64 {
     let idle = balance::value(&vault.idle);
     let plp_value = mul_div(vault.plp_held, vault.plp_price_cached, PLP_PRICE_SCALE);
-    // settled positions are resolved/certain -> they belong in the provable floor
-    idle + plp_value + settled_total(vault)
+    // settled positions are resolved/certain -> they belong in the provable floor.
+    // lend_value (a money-market supply position) is hard too: its value is principal × a
+    // monotonic on-chain index (current_supply_value), not an operator-asserted mark -> floor.
+    idle + plp_value + settled_total(vault) + lend_value(vault)
 }
 
 /// True if the full NAV does not over-claim vs the trustless lower bound.
@@ -1226,6 +1230,139 @@ public fun plp_balance<Q, S, P>(vault: &Vault<Q, S>): u64 {
         balance::value(bal)
     } else { 0 }
 }
+
+// ─── Cetus / generic CLMM position custody (Path B): vault holds a foreign Position NFT ───
+//
+// Archetype 2: a concentrated-liquidity position is an NFT (key + store), not a fungible balance.
+// Multi-venue vaults custody it on their OWN UID as a dynamic field — no human owns it — exactly
+// like PLP custody, but for a single object. Generic over Pos so the contract imports nothing
+// Cetus-specific. A cached quote-value (refreshed by the rebalancer/enclave alongside the attested
+// NAV) lets the position contribute to total NAV. That value is a MARK — operator-asserted until
+// the position is exited — so, like positions_mark_total, it is EXCLUDED from nav_lower_bound (the
+// trustless floor stays only idle + PLP + settled). One position per vault for now.
+
+public struct CetusPosKey has copy, drop, store {}
+public struct CetusValueKey has copy, drop, store {}
+
+const ECetusAlreadyHeld: u64 = 36;
+const ECetusNotHeld: u64 = 37;
+
+fun set_cetus_value<Q, S>(vault: &mut Vault<Q, S>, v: u64) {
+    if (df::exists_(&vault.id, CetusValueKey {})) {
+        let t = df::borrow_mut<CetusValueKey, u64>(&mut vault.id, CetusValueKey {}); *t = v;
+    } else {
+        df::add(&mut vault.id, CetusValueKey {}, v);
+    }
+}
+
+/// Attach a freshly-opened CLMM position to the vault + record its quote-value (ExecCap-gated).
+/// Pairs with deploy_idle, which already split out the Coin<Q> the caller used to fund the LP.
+public fun store_cetus_position<Q, S, Pos: key + store>(
+    vault: &mut Vault<Q, S>, cap: &ExecCap, pos: Pos, quote_value: u64,
+) {
+    assert_exec(vault, cap);
+    assert!(!df::exists(&vault.id, CetusPosKey {}), ECetusAlreadyHeld);
+    df::add(&mut vault.id, CetusPosKey {}, pos);
+    set_cetus_value(vault, quote_value);
+}
+
+/// Consume the DeployReceipt from `deploy_idle` AND custody the resulting CLMM position in one
+/// call (ExecCap-gated). The Cetus analogue of `confirm_deploy` — but it credits the Cetus sleeve
+/// value, NOT plp_held. `quote_value` is the vault's own Q contributed to the LP (the deploy_idle
+/// amount), so NAV is conserved: what left idle re-appears as the position's marked value.
+public fun confirm_deploy_cetus<Q, S, Pos: key + store>(
+    vault: &mut Vault<Q, S>, cap: &ExecCap, receipt: DeployReceipt, pos: Pos, quote_value: u64,
+) {
+    let DeployReceipt { vault_id, dusdc_out: _ } = receipt;
+    assert!(vault_id == object::id(vault), EWrongVault);
+    store_cetus_position(vault, cap, pos, quote_value);
+}
+
+/// Refresh the cached quote-value of the held position (ExecCap-gated). The rebalancer recomputes
+/// it from pool price + tick range (CetusModule.value) and writes it back, keeping NAV honest.
+public fun mark_cetus_value<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap, quote_value: u64) {
+    assert_exec(vault, cap);
+    assert!(df::exists(&vault.id, CetusPosKey {}), ECetusNotHeld);
+    set_cetus_value(vault, quote_value);
+}
+
+/// Take the position back out for exit within a PTB (ExecCap-gated). The PTB then calls Cetus
+/// pool::remove_liquidity / close_position on it. Zeroes the cached value.
+public fun take_cetus_position<Q, S, Pos: key + store>(vault: &mut Vault<Q, S>, cap: &ExecCap): Pos {
+    assert_exec(vault, cap);
+    assert!(df::exists(&vault.id, CetusPosKey {}), ECetusNotHeld);
+    set_cetus_value(vault, 0);
+    df::remove(&mut vault.id, CetusPosKey {})
+}
+
+/// Cached quote-value of the held CLMM position (0 if none) — the Cetus sleeve's NAV contribution.
+public fun cetus_value<Q, S>(vault: &Vault<Q, S>): u64 {
+    if (df::exists_(&vault.id, CetusValueKey {})) { *df::borrow<CetusValueKey, u64>(&vault.id, CetusValueKey {}) } else { 0 }
+}
+
+public fun has_cetus_position<Q, S>(vault: &Vault<Q, S>): bool { df::exists(&vault.id, CetusPosKey {}) }
+
+// ─── Lend sleeve custody (Archetype: money-market supply position) ────────────
+// Mirrors the Cetus sleeve, but the cached value is HARD, not a soft mark: a floe_lend
+// SupplyPosition is worth principal × a monotonic on-chain index (current_supply_value), which
+// only grows and can't be operator-inflated. So lend_value() is counted in BOTH total_assets AND
+// nav_lower_bound (the trustless floor) — like settled_total, unlike cetus_value. One per vault.
+public struct LendPosKey has copy, drop, store {}
+public struct LendValueKey has copy, drop, store {}
+
+const ELendAlreadyHeld: u64 = 38;
+const ELendNotHeld: u64 = 39;
+
+fun set_lend_value<Q, S>(vault: &mut Vault<Q, S>, v: u64) {
+    if (df::exists_(&vault.id, LendValueKey {})) {
+        let t = df::borrow_mut<LendValueKey, u64>(&mut vault.id, LendValueKey {}); *t = v;
+    } else {
+        df::add(&mut vault.id, LendValueKey {}, v);
+    }
+}
+
+/// Attach a money-market supply position to the vault + record its quote-value (ExecCap-gated).
+public fun store_lend_position<Q, S, Pos: key + store>(
+    vault: &mut Vault<Q, S>, cap: &ExecCap, pos: Pos, quote_value: u64,
+) {
+    assert_exec(vault, cap);
+    assert!(!df::exists(&vault.id, LendPosKey {}), ELendAlreadyHeld);
+    df::add(&mut vault.id, LendPosKey {}, pos);
+    set_lend_value(vault, quote_value);
+}
+
+/// Consume the DeployReceipt from `deploy_idle` AND custody the resulting lend position in one
+/// call (ExecCap-gated). The lend analogue of `confirm_deploy_cetus`; credits the lend sleeve.
+public fun confirm_deploy_lend<Q, S, Pos: key + store>(
+    vault: &mut Vault<Q, S>, cap: &ExecCap, receipt: DeployReceipt, pos: Pos, quote_value: u64,
+) {
+    let DeployReceipt { vault_id, dusdc_out: _ } = receipt;
+    assert!(vault_id == object::id(vault), EWrongVault);
+    store_lend_position(vault, cap, pos, quote_value);
+}
+
+/// Refresh the cached quote-value of the held lend position (ExecCap-gated). The keeper recomputes
+/// it from floe_lend::current_supply_value (principal × live index) and writes it back.
+public fun mark_lend_value<Q, S>(vault: &mut Vault<Q, S>, cap: &ExecCap, quote_value: u64) {
+    assert_exec(vault, cap);
+    assert!(df::exists(&vault.id, LendPosKey {}), ELendNotHeld);
+    set_lend_value(vault, quote_value);
+}
+
+/// Take the lend position back out for exit within a PTB (ExecCap-gated). Zeroes the cached value.
+public fun take_lend_position<Q, S, Pos: key + store>(vault: &mut Vault<Q, S>, cap: &ExecCap): Pos {
+    assert_exec(vault, cap);
+    assert!(df::exists(&vault.id, LendPosKey {}), ELendNotHeld);
+    set_lend_value(vault, 0);
+    df::remove(&mut vault.id, LendPosKey {})
+}
+
+/// Cached quote-value of the held lend position (0 if none) — counted in the trustless floor.
+public fun lend_value<Q, S>(vault: &Vault<Q, S>): u64 {
+    if (df::exists_(&vault.id, LendValueKey {})) { *df::borrow<LendValueKey, u64>(&vault.id, LendValueKey {}) } else { 0 }
+}
+
+public fun has_lend_position<Q, S>(vault: &Vault<Q, S>): bool { df::exists(&vault.id, LendPosKey {}) }
 
 // ─── BalanceManager cap custody (Path B): vault holds the caps on its UID ─────
 //

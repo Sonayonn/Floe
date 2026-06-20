@@ -11,7 +11,7 @@
  */
 import { Transaction } from "@mysten/sui/transactions";
 import {
-  A, DUSDC, clientFor, addrFor, hexBytes, resolveCap, signHeartbeat, readVaultPlp, VAULTS,
+  A, DUSDC, clientFor, addrFor, hexBytes, resolveCap, signHeartbeat, readVaultPlp, plpPoolPrice, VAULTS,
 } from "./lib-attest.ts";
 
 const INTERVAL_MS = Number(process.env.INTERVAL_MS ?? 300_000);
@@ -19,12 +19,12 @@ const INTERVAL_MS = Number(process.env.INTERVAL_MS ?? 300_000);
 async function refreshOnce() {
   const ts = new Date().toISOString();
   for (const v of VAULTS) {
-    const { plpHeld, plpPrice } = await readVaultPlp(v.vaultId);
+    const { plpHeld } = await readVaultPlp(v.vaultId);
     if (plpHeld === 0n) continue; // idle → already fresh, skip
     try {
       const client = clientFor(v.holder);
       const execCap = await resolveCap(client, addrFor(v.holder), "ExecCap", v.vaultId);
-      const hb = await signHeartbeat(v.vaultId, plpPrice > 0n ? plpPrice : 1_000_000n, plpHeld);
+      const hb = await signHeartbeat(v.vaultId, await plpPoolPrice(), plpHeld); // 9dp pool price
       const tx = new Transaction();
       tx.moveCall({
         target: `${A.package}::floe::update_nav_attested`, typeArguments: [DUSDC, v.sType],

@@ -1,0 +1,38 @@
+{
+  "at": "2026-06-19T22:40:02.219Z",
+  "digest": "3p18GZvFBNt8E4QreAyy5EjYDKfspZobaFjCx2Wcz6tq",
+  "deposits": [
+    {
+      "name": "Floe Stratos",
+      "vaultId": "0xea33fe41c7512a1a36be417b0ce400ada0db0d9fe54f2ade75662aaef987de2e",
+      "dusdc": 40
+    },
+    {
+      "name": "Floe Multi-Venue",
+      "vaultId": "0x1ea69d68c9230470f107361c56763e3eed429f4b44de57ae73731c1f4bd6aabc",
+      "dusdc": 80
+    },
+    {
+      "name": "Floe Reserve",
+      "vaultId": "0xa9e3b73d72c739216b4e8481149a42a91c1efe4edda21b09cada8376c5c68ea1",
+      "dusdc": 50
+    },
+    {
+      "name": "Range Ladder",
+      "vaultId": "0x0edf9e5185eaa08d1602d61723b59d66431c0bf717c3ad257ada9fcbd4da005f",
+      "dusdc": 40
+    },
+    {
+      "name": "Delta-Hedged",
+      "vaultId": "0x44ac091ac377bb4fc97e721d6fd507c0e7ed5e293df1aeb9a4cea718fb893df0",
+      "dusdc": 30
+    }
+  ],
+  "navs": {
+    "Floe Stratos": 42.959765,
+    "Floe Multi-Venue": 82.5,
+    "Floe Reserve": 52,
+    "Range Ladder": 41,
+    "Delta-Hedged": 30.5
+  }
+}

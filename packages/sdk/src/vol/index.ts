@@ -15,6 +15,36 @@ const u64le = (bytes: number[]): bigint => {
   return v;
 };
 
+/** Discover a LIVE Predict SVI oracle for an underlying at runtime. DeepBook Predict rolls a fresh
+ *  OracleSVI per expiry (hourly + dated series), so a hardcoded id eventually expires and vol_now
+ *  aborts with EExpired. We scan recent `OraclePricesUpdated` events (only actively-fed oracles emit
+ *  these → guaranteed live), then pick the nearest expiry with comfortable runway so the reading is
+ *  spot-like yet won't expire mid-session. Falls back to the furthest-dated if nothing clears runway. */
+export async function resolveLiveOracle(
+  floe: FloeClient,
+  opts: { underlying?: string; minRunwayMs?: number } = {},
+): Promise<string> {
+  const underlying = opts.underlying ?? 'BTC';
+  const minRunwayMs = opts.minRunwayMs ?? 24 * 60 * 60 * 1000; // 24h
+  const a = floe.addresses;
+  const ev = await floe.sui.queryEvents({
+    query: { MoveModule: { package: a.predict.package, module: 'oracle' } },
+    limit: 50, order: 'descending',
+  });
+  const ids = [...new Set(ev.data.map((e) => (e.parsedJson as any)?.oracle_id).filter(Boolean) as string[])];
+  if (ids.length === 0) throw new Error('resolveLiveOracle: no recent oracle updates found');
+  const objs = await floe.sui.multiGetObjects({ ids, options: { showContent: true } });
+  const now = Date.now();
+  const live = objs
+    .map((o) => (o.data?.content as any)?.fields)
+    .filter((f) => f && f.underlying_asset === underlying && f.active === true && Number(f.expiry) > now)
+    .map((f) => ({ id: f.id.id as string, expiry: Number(f.expiry) }));
+  if (live.length === 0) throw new Error(`resolveLiveOracle: no live ${underlying} oracle among recent updates`);
+  const stable = live.filter((o) => o.expiry > now + minRunwayMs).sort((x, y) => x.expiry - y.expiry); // nearest-stable
+  if (stable.length > 0) return stable[0].id;
+  return live.sort((x, y) => y.expiry - x.expiry)[0].id; // fallback: furthest-dated
+}
+
 /** Live ATM implied vol (basis points) computed on-chain from the SVI oracle.
  *  Read-only via devInspect — no gas, no signer required. Defaults to the BTC oracle. */
 export async function volNow(floe: FloeClient, oracleId?: string): Promise<bigint> {
@@ -94,6 +124,27 @@ export async function registerVolAttester(
   const res = await floe.sui.signAndExecuteTransaction({ signer: floe.signer, transaction: tx, options: { showEffects: true } });
   if (res.effects?.status?.status !== 'success') throw new Error(`register_vol_attester failed: ${res.effects?.status?.error}`);
   return res.digest;
+}
+
+/** Read the registered vol-attester pubkey (hex, '' if none). Enumerates dynamic fields and
+ *  suffix-matches VolAttesterKey so it survives package upgrades (the key type carries the
+ *  creating package's address). Mirrors floe_vol_index::vol_attester. */
+export async function volAttester(floe: FloeClient): Promise<string> {
+  let cursor: string | null | undefined = null;
+  for (;;) {
+    const page = await floe.sui.getDynamicFields({ parentId: floe.addresses.vol.volIndex, cursor });
+    for (const fld of page.data) {
+      if (fld.name.type.endsWith('::VolAttesterKey')) {
+        const obj = await floe.sui.getObject({ id: fld.objectId, options: { showContent: true } });
+        const val = (obj.data?.content as any)?.fields?.value;
+        if (Array.isArray(val)) return (val as number[]).map((b) => b.toString(16).padStart(2, '0')).join('');
+        return typeof val === 'string' ? val.replace(/^0x/, '') : '';
+      }
+    }
+    if (!page.hasNextPage) break;
+    cursor = page.nextCursor;
+  }
+  return '';
 }
 
 /** Submit an enclave-signed vol reading. Anyone may call; the contract verifies the signature

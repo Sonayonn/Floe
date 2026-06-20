@@ -13,6 +13,7 @@ import { Interactions } from "@/components/landing/Interactions";
 import { LiveProof } from "@/components/landing/LiveProof";
 import { VenueMark } from "@/components/ui/Logo";
 import { FLOE_VENUES } from "@floe/sdk/browser";
+import { useVol, volPct } from "@/lib/hooks/useVol";
 
 const IceScene = dynamic(() => import("@/components/landing/IceScene"), {
   ssr: false,
@@ -49,6 +50,8 @@ const MOAT = [
 ] as const;
 
 export default function Landing() {
+  const { data: vol } = useVol();
+  const volBps = vol ? (vol.liveBps > 0n ? vol.liveBps : vol.indexBps) : 0n;
   return (
     <main className="lp">
       <Interactions />
@@ -163,6 +166,18 @@ export default function Landing() {
                 <h3 className="lp-card__name">{p.name}</h3>
                 <div className="lp-card__tag">{p.tag}</div>
                 <p className="lp-card__d">{p.d}</p>
+                {p.name === "Floe Index" && volBps > 0n && (
+                  <div style={{
+                    display: "inline-flex", alignItems: "center", gap: 7, marginTop: "auto",
+                    paddingTop: 12, fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--accent)",
+                  }}>
+                    <span style={{
+                      width: 6, height: 6, borderRadius: "50%", background: "var(--accent)",
+                      boxShadow: "0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent)",
+                    }} />
+                    {volPct(volBps)} <span style={{ color: "var(--text-muted)" }}>live · BTC ATM IV, on-chain</span>
+                  </div>
+                )}
               </Reveal>
             );
           })}

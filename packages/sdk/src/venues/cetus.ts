@@ -74,8 +74,11 @@ export class CetusModule implements VenueModule<unknown, unknown, unknown> {
    * createPoolWithLiquidity — create a Cetus pool + open a seeded position in ONE call.
    * Used when no suitable pool exists; pairs coins the vault already holds (e.g. SUI/DUSDC).
    * Coin ordering is type-string sorted (A < B). For SUI/DUSDC: A=SUI, B=DUSDC.
-   * Returns nothing here (transfers Position to recipient); the position id is read from
-   * objectChanges after execution.
+   *
+   * Targets the 0x0868b71c deploy's `factory::create_pool_with_liquidity` — this is the path that
+   * needs NO CoinMetadata (the current deploy's pool_creator::create_pool_v2 requires CoinMetadata,
+   * which our coin_registry-native dUSDC lacks). arg0=Pools, arg1=GlobalConfig, fixed amounts via
+   * amountA/amountB + fixAmountA. Returns Position + the two refund coins (unused inputs).
    */
   static createPoolWithLiquidity(
     tx: Transaction,
@@ -91,8 +94,11 @@ export class CetusModule implements VenueModule<unknown, unknown, unknown> {
     },
   ): void {
     const C = CETUS_TESTNET;
-    const position = tx.moveCall({
-      target: `${C.corePackageId}::factory::create_pool_with_liquidity`,
+    // Returns THREE values: Position + leftover Coin<A> + leftover Coin<B> (unused inputs are
+    // refunded). All three are non-droppable, so every one must be consumed — transfer them all
+    // to the recipient (capturing only `position` would leave the refund coins unused → tx fails).
+    const [position, refundA, refundB] = tx.moveCall({
+      target: `${C.publishedAt}::factory::create_pool_with_liquidity`,
       typeArguments: [opts.coinTypeA, opts.coinTypeB],
       arguments: [
         tx.object(C.poolsRegistryId),
@@ -110,7 +116,7 @@ export class CetusModule implements VenueModule<unknown, unknown, unknown> {
         tx.object(C.clock),
       ],
     });
-    tx.transferObjects([position], opts.recipient);
+    tx.transferObjects([position, refundA, refundB], opts.recipient);
   }
 
   /**
@@ -140,7 +146,7 @@ export class CetusModule implements VenueModule<unknown, unknown, unknown> {
 
     // open_position(config, &mut pool, tick_lower:u32, tick_upper:u32, ctx) -> Position
     const position = tx.moveCall({
-      target: `${C.corePackageId}::pool::open_position`,
+      target: `${C.publishedAt}::pool::open_position`,
       typeArguments: ta,
       arguments: [
         tx.object(C.globalConfigId),
@@ -152,7 +158,7 @@ export class CetusModule implements VenueModule<unknown, unknown, unknown> {
 
     // add_liquidity_fix_coin(config, &mut pool, &mut position, amount:u64, fix_a:bool, &clock) -> receipt
     const receipt = tx.moveCall({
-      target: `${C.corePackageId}::pool::add_liquidity_fix_coin`,
+      target: `${C.publishedAt}::pool::add_liquidity_fix_coin`,
       typeArguments: ta,
       arguments: [
         tx.object(C.globalConfigId),
@@ -170,7 +176,7 @@ export class CetusModule implements VenueModule<unknown, unknown, unknown> {
 
     // repay_add_liquidity(config, &mut pool, Balance<A>, Balance<B>, receipt)
     tx.moveCall({
-      target: `${C.corePackageId}::pool::repay_add_liquidity`,
+      target: `${C.publishedAt}::pool::repay_add_liquidity`,
       typeArguments: ta,
       arguments: [
         tx.object(C.globalConfigId),

@@ -1,0 +1,21 @@
+[Unit]
+Description=Floe Nitro enclave (floe-nav) — launch + KMS-sealed identity + on-box proxy
+After=nitro-enclaves-allocator.service network-online.target
+Requires=nitro-enclaves-allocator.service
+Wants=network-online.target
+
+[Service]
+Type=forking
+# Adjust paths/region/CID to the instance. enclave-up.sh terminates stale enclaves, runs the .eif,
+# starts the KMS vsock-proxy, provisions the sealed key, and exposes localhost:3000.
+Environment=AWS_REGION=us-east-1
+Environment=FLOE_EIF=/opt/floe/nautilus-template/out/nitro.eif
+ExecStart=/opt/floe/packages/sdk/scripts/boot/enclave-up.sh
+ExecStop=/usr/bin/nitro-cli terminate-enclave --all
+RemainAfterExit=yes
+Restart=always
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target

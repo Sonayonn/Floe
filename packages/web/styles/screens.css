@@ -82,6 +82,7 @@
 .earn-row__strategy { font-size: var(--text-xs); color: var(--text-subtle); letter-spacing: 0.02em; }
 .earn-row__num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text); font-size: var(--text-base); }
 .earn-row__num--floor { color: var(--accent); }
+.earn-row__num--apy { color: var(--accent); font-weight: 600; }
 .earn-row__sub { font-size: 10.5px; font-family: var(--font-mono); color: var(--text-subtle); letter-spacing: 0.06em; text-transform: uppercase; margin-top: 2px; }
 .earn-row__cta {
   display: inline-flex; align-items: center; gap: 6px;

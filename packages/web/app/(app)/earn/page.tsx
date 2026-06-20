@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { useVaults, type VaultRow } from "@/lib/hooks/useVaults";
+import { useVol } from "@/lib/hooks/useVol";
 import { ProofBadge, type VaultSafety } from "@/components/ui/ProofBadge";
 import { WaterlineBar } from "@/components/ui/WaterlineBar";
 import { AssetBadge } from "@/components/ui/AssetBadge";
@@ -11,6 +12,7 @@ import { VenueMark } from "@/components/ui/Logo";
 import { vaultVenues } from "@/lib/allocations";
 import { isOfficial } from "@/lib/official";
 import { fmt6, fmtMoney, shortAddr } from "@/lib/format";
+import { estimateApyForVault, apyPct } from "@floe/sdk/browser";
 
 const DEPOSIT_SYMBOL = "dUSDC"; // all live testnet vaults are Vault<DUSDC, SHARE>
 
@@ -22,6 +24,11 @@ function activeVenues(v: VaultRow) {
 
 export default function EarnPage() {
   const { data: vaults, isLoading, error } = useVaults();
+  const { data: vol } = useVol();
+  // Live ATM implied vol drives the forward APY projection (range-premium harvest scales with IV).
+  // Prefer the guaranteed-live devInspect compute; fall back to the stored index snapshot.
+  const ivBps = Number(vol?.liveBps || vol?.indexBps || 0n) || undefined;
+  const apyOf = (v: VaultRow) => estimateApyForVault(v, ivBps);
 
   const sorted = (vaults ?? []).slice().sort((a, b) => {
     // Floe-official first, then by NAV descending
@@ -139,6 +146,12 @@ export default function EarnPage() {
             <WaterlineBar nav={feature.nav} floor={feature.navLowerBound} pctCertain={feature.pctCertain} symbol={DEPOSIT_SYMBOL} />
             <div className="earn-feature__substats">
               <div className="kpi">
+                <span className="kpi__k">Est. APY · net</span>
+                <span className="kpi__v kpi__v--accent" title="Forward projection from live implied vol + venue base rates, net of fees">
+                  {apyPct(apyOf(feature).apyBps)}
+                </span>
+              </div>
+              <div className="kpi">
                 <span className="kpi__k">Share price</span>
                 <span className="kpi__v">{fmt6(feature.sharePrice, 4)}</span>
               </div>
@@ -164,6 +177,7 @@ export default function EarnPage() {
                 <tr>
                   <th>Vault</th>
                   <th>Venues</th>
+                  <th className="r">Est. APY</th>
                   <th className="r">NAV</th>
                   <th className="r">Proven floor</th>
                   <th className="r">Share price</th>
@@ -196,6 +210,10 @@ export default function EarnPage() {
                           ))}
                           {venues.length > 3 && <span className="venue-mix__more">+{venues.length - 3}</span>}
                         </span>
+                      </td>
+                      <td className="r">
+                        <div className="earn-row__num earn-row__num--apy">{apyPct(apyOf(v).apyBps)}</div>
+                        <div className="earn-row__sub">est · net of fees</div>
                       </td>
                       <td className="r">
                         <div className="earn-row__num">{fmt6(v.nav)}</div>

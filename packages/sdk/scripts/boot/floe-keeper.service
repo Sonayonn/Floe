@@ -1,0 +1,18 @@
+[Unit]
+Description=Floe keeper — re-attest on boot + heartbeat loop
+After=floe-enclave.service network-online.target
+Requires=floe-enclave.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+Environment=FLOE_REPO=/opt/floe
+Environment=FLOE_KEEPER_ENV=/etc/floe/keeper.env
+ExecStart=/opt/floe/packages/sdk/scripts/boot/boot-keeper.sh
+Restart=always
+RestartSec=10
+# Run as a non-root user that owns the repo + can read /etc/floe/keeper.env (0640, group-readable).
+User=ec2-user
+
+[Install]
+WantedBy=multi-user.target

@@ -8,8 +8,8 @@ export const LOGO_SRC: Record<string, string> = {
   dusdc: "/logos/usdc.svg",
   cetus: "/logos/cetus.png",
   deepbook: "/logos/deepbook.jpg",
-  lending: "/logos/suilend.png",
-  suilend: "/logos/suilend.png",
+  // 'lending' (Floe Lend) intentionally has NO logo entry → falls back to the Floe-drawn
+  // money-market glyph in VenueIcon. It is Floe's OWN money market, not a third party (Suilend).
   floe: "/logos/floe.svg",
   share: "/logos/floe.svg",
   flshare: "/logos/floe.svg",

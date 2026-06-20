@@ -6,7 +6,7 @@ export const FLOE_VERSION = '0.13.0';
 export const FLOE_ADDRESSES = {
   testnet: {
     // Core vault layer (factory, registry, treasury, agents)
-    package:       '0x260c7074d9c995bcc3c3b1ba4aa872ed05ea221f8ef4c3057d0efe30ef765f83', // V10 (async redemption; settlement-aware NAV + circuit breaker)
+    package:       '0xc9810eb191cfd05a6d99b98476650efbfd4e2c79b53ee87c87e2abc512083f5a', // V12 (lend sleeve custody: lend_value HARD → counted in nav_lower_bound floor, unlike soft cetus_value) — supersedes 0x457cf2d2 (Cetus in-vault custody)
     packageOriginal: '0x1aacf4f9f787807d811c058e4a3194f48b2ad30f50096c0713668b656bbd6003', // TRUE genesis publish (type-origin verified) — Seal packageId namespace
     module:        'floe',
     registry:      '0x3462badecc7b4274b222f3b2bf0f0ddab572c294336ec8e7c7d62f42bf1a2f45',
@@ -60,7 +60,12 @@ export const FLOE_ADDRESSES = {
       object:         '0xc8736204d12f0a7277c86388a68bf8a194b0a14c5538ad13f22cbd8e2a38028a',
       manager:        '0x6ea452565c5ef3916c10f899dae0a307beb1d3dda0b59fabc08a7f315a7373ab',
       balanceManager: '0x0b97374737d16df78ed7528d02a7a8f95c3c5235de5b023af749418bed90903b',
-      btcOracle:      '0xb79524498a9947307e192d8045772150dc47aade4f9e09bd4b6fe3236b9e3125',
+      // NOTE: Predict rolls a fresh OracleSVI per expiry (hourly + dated), so any single id
+      // eventually expires (vol_now aborts EExpired). This is only a sane default/fallback —
+      // the keeper resolves a live one at runtime via Vol.resolveLiveOracle(). Currently the
+      // 2026-07-17 BTC series (live, ~1mo runway).
+      btcOracle:      '0x05306d43afb006322e73aeadb217b1a83511aed57f773a2f4e7a181e0caae01d',
+      plpType:        '0xf5ea2b3749c65d6e56507cc35388719aadb28f9cab873696a2f8687f5c785138::plp::PLP',
     },
 
     seal: {
@@ -95,12 +100,12 @@ export interface VenueMeta {
 export const FLOE_VENUES: VenueMeta[] = [
   { key: 'deepbook', name: 'DeepBook Predict', category: 'Structured / options', status: 'live',
     blurb: 'Flagship venue. PLP base yield + 1-sigma vertical-range ladder priced off the Block Scholes SVI oracle, with a Margin delta hedge.' },
-  { key: 'cetus', name: 'Cetus', category: 'Concentrated liquidity', status: 'live',
-    blurb: 'CLMM liquidity provision — concentrated-range positions earning swap fees.' },
+  { key: 'cetus', name: 'Cetus', category: 'Concentrated liquidity', status: 'mainnet',
+    blurb: 'CLMM concentrated-range liquidity earning swap fees. In-vault Position-NFT custody is built + published; activates at mainnet (testnet pool creation for the demo quote coin is blocked by coin-registry metadata).' },
   { key: 'idle', name: 'Idle reserve', category: 'Uninvested', status: 'live',
     blurb: 'Quote asset held in the vault BalanceManager — instantly redeemable, counts fully toward the proven floor.' },
-  { key: 'lending', name: 'Sui lending', category: 'Money market', status: 'mainnet',
-    blurb: 'Overcollateralized lending supply. Adapter implemented; activates at mainnet.' },
+  { key: 'lending', name: 'Floe Lend', category: 'Money market', status: 'live',
+    blurb: "Floe's own attested money market: vaults supply dUSDC for an index-based yield. The supply position is hard-valued (principal × a monotonic on-chain index), so it counts in the proven floor. Live on testnet." },
 ];
 
 export interface AssetMeta { type: string; symbol: string; decimals: number; name: string; }

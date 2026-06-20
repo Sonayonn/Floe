@@ -17,7 +17,7 @@ import { Transaction } from "@mysten/sui/transactions";
 import { FloeClient, Vol } from "../src/index.ts";
 import {
   A, DUSDC, ENCLAVE, PCR0, VAULTS, clientFor, addrFor, floeFounder,
-  hexBytes, resolveCap, signHeartbeat, readVaultPlp, type VaultRef,
+  hexBytes, resolveCap, signHeartbeat, readVaultPlp, plpPoolPrice, type VaultRef,
 } from "./lib-attest.ts";
 
 async function exec(client: FloeClient, tx: Transaction, label: string) {
@@ -31,8 +31,10 @@ async function exec(client: FloeClient, tx: Transaction, label: string) {
 async function attestVault(v: VaultRef, pubkey: string): Promise<{ digest: string; plpHeld: bigint }> {
   const client = clientFor(v.holder);
   const owner = addrFor(v.holder);
-  const { plpHeld, plpPrice } = await readVaultPlp(v.vaultId);
-  const usePrice = plpPrice > 0n ? plpPrice : 1_000_000n; // enclave + contract require plp_price > 0
+  const { plpHeld } = await readVaultPlp(v.vaultId);
+  // Price must be 9dp (PLP_PRICE_SCALE). Derive it from the pool for PLP-holding vaults; idle
+  // vaults (plp_held = 0) carry no PLP value, so any >0 price works — use par (1.0 @ 9dp).
+  const usePrice = plpHeld > 0n ? await plpPoolPrice() : 1_000_000_000n;
   const hb = await signHeartbeat(v.vaultId, usePrice, plpHeld);
 
   const [ownerCap, execCap] = await Promise.all([
@@ -78,23 +80,38 @@ for (const v of VAULTS) {
 
 // ── 3) Attested vol oracle (intent 2) — refresh index, sign it, register + submit ──
 try {
-  await Vol.updateVolIndex(floeFounder); // populate VolIndex.{vol_bps,spot} from the live SVI oracle
+  // Resolve a LIVE oracle at runtime — Predict rolls per-expiry, so the constant eventually expires.
+  const oracleId = await Vol.resolveLiveOracle(floeFounder, { underlying: "BTC" });
+  console.log(`  live BTC oracle: ${oracleId}`);
+
+  // Live tier: permissionless, enclave-free — IV computed ON-CHAIN from the SVI oracle, then snapshot.
+  const volDigest = await Vol.updateVolIndex(floeFounder, oracleId);
   const cur = await Vol.currentVol(floeFounder);
-  const r = await fetch(`${ENCLAVE}/sign_vol`, {
-    method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ payload: { oracle_id: hexBytes(A.predict.btcOracle), vol_bps: Number(cur.volBps), spot: Number(cur.spot) } }),
-  });
-  if (!r.ok) throw new Error(`sign_vol ${r.status}: ${await r.text()}`);
-  const vj: any = await r.json(); // { response: { timestamp_ms, data }, signature }
-  await Vol.registerVolAttester(floeFounder, { pubkeyHex: pubkey });
-  const d = await Vol.updateVolAttested(floeFounder, {
-    oracleId: A.predict.btcOracle, volBps: cur.volBps, spot: cur.spot,
-    timestampMs: BigInt(vj.response.timestamp_ms), signatureHex: vj.signature,
-  });
-  out["vol:attested"] = d;
-  console.log(`✓ attested vol pushed (vol_bps ${cur.volBps}, spot ${cur.spot}) ${d}`);
+  out["vol:live"] = volDigest;
+  console.log(`✓ live vol snapshot (vol_bps ${cur.volBps}, spot ${cur.spot}) ${volDigest}`);
+
+  // Attested tier: register_vol_attester is ONCE-ONLY, so if the VolIndex was pinned to a prior
+  // enclave boot its signatures won't verify against this boot's key — skip rather than abort.
+  const registered = await Vol.volAttester(floeFounder);
+  if (!registered) await Vol.registerVolAttester(floeFounder, { pubkeyHex: pubkey });
+  if (registered && registered !== pubkey) {
+    console.warn(`⚠ attested-vol skipped: VolIndex attester ${registered.slice(0, 10)}… is a prior boot (register is once-only); live on-chain vol above is current.`);
+  } else {
+    const r = await fetch(`${ENCLAVE}/sign_vol`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ payload: { oracle_id: hexBytes(oracleId), vol_bps: Number(cur.volBps), spot: Number(cur.spot) } }),
+    });
+    if (!r.ok) throw new Error(`sign_vol ${r.status}: ${await r.text()}`);
+    const vj: any = await r.json(); // { response: { timestamp_ms, data }, signature }
+    const d = await Vol.updateVolAttested(floeFounder, {
+      oracleId, volBps: cur.volBps, spot: cur.spot,
+      timestampMs: BigInt(vj.response.timestamp_ms), signatureHex: vj.signature,
+    });
+    out["vol:attested"] = d;
+    console.log(`✓ attested vol pushed (vol_bps ${cur.volBps}, spot ${cur.spot}) ${d}`);
+  }
 } catch (e) {
-  console.warn(`⚠ attested vol: ${(e as Error).message}`);
+  console.warn(`⚠ vol: ${(e as Error).message}`);
 }
 
 writeFileSync(new URL("./attest-all-result.json", import.meta.url), JSON.stringify({ at: new Date().toISOString(), enclaveUrl: ENCLAVE, pubkey, pcr0: PCR0, digests: out }, null, 2));

@@ -17,6 +17,7 @@ import * as walrus from './walrus/index.ts';
 import * as trackRecord from './track-record/index.ts';
 import * as seal from './seal/index.ts';
 import * as lend from './lend/index.ts';
+import * as yieldModel from './yield/index.ts';
 
 /** Vault reads + (later) actions. */
 export const FloeVault = { ...vaultRead, ...vaultDeploy, ...vaultActions, ...vaultSelfHeal };
@@ -42,6 +43,8 @@ export const Walrus = { ...walrus };
 export const TrackRecord = { ...trackRecord };
 /** Strategy-parameter privacy — Seal-encrypted config, capability-gated decryption. */
 export const Seal = { ...seal };
+/** Forward APY projection — comparable, inspectable estimate for every vault. */
+export const Yield = { ...yieldModel };
 
 export type { VaultState } from './vault/read.ts';
 export type { VaultInfo } from './registry.ts';
@@ -51,6 +54,7 @@ export type { EnclaveInfo } from './attestation/index.ts';
 export type { AgentEntry, AuthorizeAgentOpts } from './agent/index.ts';
 export type { FloeSnapshot, StoredBlob } from './walrus/index.ts';
 export type { VerifiedPoint, TrackRecord as TrackRecordData } from './track-record/index.ts';
+export { estimateApy, estimateApyForVault, mandateMix, apyPct, YIELD_MODEL, type ApyEstimate, type ApyComponent } from './yield/index.ts';
 
 // Venue layer (the multi-venue spine)
 export type { VenueModule, VenueValuation } from './venues/types.ts';

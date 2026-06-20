@@ -12,6 +12,8 @@ export interface VaultState {
   plpHeld: bigint;
   plpPrice: bigint;          // 9dp
   positionsMarkTotal: bigint;
+  cetusValue: bigint;        // cached quote-value of the in-vault Cetus CLMM position (0 if none) — soft mark
+  lendValue: bigint;         // cached quote-value of the in-vault floe_lend supply position (0 if none) — hard, in floor
   positionCount: bigint;
   nav: bigint;               // total assets, 6dp
   sharePrice: bigint;        // 6dp
@@ -52,23 +54,53 @@ export async function getVaultState(floe: FloeClient, vaultId: string): Promise<
   const supply = BigInt(v.share_supply ?? 0);
 
   const plpValue = (plpHeld * plpPrice) / PLP_PRICE_SCALE;
-  // Settlement-aware: read SettledTotal dynamic field (certain, resolved value).
+  // Settlement-aware: read the SettledTotal dynamic field (certain, resolved value). Its key type
+  // is tagged with whichever package version was live when the field was created — which varies
+  // across upgrades — so a hardcoded `${package}::${module}::SettledTotal` lookup silently misses
+  // (and drops the settled value from NAV). Enumerate the fields and suffix-match instead.
+  // Both SettledTotal and CetusValueKey are dynamic fields whose key type carries whichever
+  // package version created them (varies across upgrades) — so a hardcoded lookup silently
+  // misses. Enumerate once and suffix-match both. (CetusValueKey caches the Cetus sleeve value.)
   let settledTotal = 0n;
+  let cetusValue = 0n;
+  let lendValue = 0n;
   try {
-    const sf = await floe.sui.getDynamicFieldObject({
-      parentId: vaultId,
-      name: { type: `${floe.addresses.package}::${floe.addresses.module}::SettledTotal`, value: {} },
-    });
-    const val = (sf.data?.content as any)?.fields?.value;
-    if (val != null) settledTotal = BigInt(val);
-  } catch { /* no settled positions yet */ }
+    let cursor: string | null | undefined = null;
+    let foundSettled = false, foundCetus = false, foundLend = false;
+    scan: for (;;) {
+      const page = await floe.sui.getDynamicFields({ parentId: vaultId, cursor });
+      for (const fld of page.data) {
+        if (!foundSettled && fld.name.type.endsWith(`::${floe.addresses.module}::SettledTotal`)) {
+          const obj = await floe.sui.getObject({ id: fld.objectId, options: { showContent: true } });
+          const val = (obj.data?.content as any)?.fields?.value;
+          if (val != null) settledTotal = BigInt(val);
+          foundSettled = true;
+        } else if (!foundCetus && fld.name.type.endsWith(`::${floe.addresses.module}::CetusValueKey`)) {
+          const obj = await floe.sui.getObject({ id: fld.objectId, options: { showContent: true } });
+          const val = (obj.data?.content as any)?.fields?.value;
+          if (val != null) cetusValue = BigInt(val);
+          foundCetus = true;
+        } else if (!foundLend && fld.name.type.endsWith(`::${floe.addresses.module}::LendValueKey`)) {
+          const obj = await floe.sui.getObject({ id: fld.objectId, options: { showContent: true } });
+          const val = (obj.data?.content as any)?.fields?.value;
+          if (val != null) lendValue = BigInt(val);
+          foundLend = true;
+        }
+        if (foundSettled && foundCetus && foundLend) break scan;
+      }
+      if (!page.hasNextPage) break;
+      cursor = page.nextCursor;
+    }
+  } catch { /* no settled / cetus / lend positions yet */ }
   const unsettledMarks = marks;
-  const nav = idle + plpValue + unsettledMarks + settledTotal;
+  // cetusValue is a soft mark (excluded from the floor below); lendValue is HARD (principal × a
+  // monotonic on-chain index) so — like settledTotal — it counts in the floor too. Mirrors total_assets.
+  const nav = idle + plpValue + unsettledMarks + settledTotal + cetusValue + lendValue;
 
   // ── circuit-breaker safety verdict (mirrors floe::nav_safety_status) ──
   const STALENESS_MS = 3_600_000n;      // PRICE_STALENESS_LIMIT_MS
   const MAX_DIVERGENCE_BPS = 500n;      // 5%
-  const navLowerBound = idle + plpValue + settledTotal; // floor includes settled (certain)
+  const navLowerBound = idle + plpValue + settledTotal + lendValue; // floor includes settled + lend (both hard)
   const updatedMs = BigInt(v.plp_price_updated_ms ?? 0);
   const nowMs = BigInt(Date.now());
   const attestedFlag = (v.fees?.fields ?? {}).attested ?? false;
@@ -97,6 +129,8 @@ export async function getVaultState(floe: FloeClient, vaultId: string): Promise<
     shareSupply: supply,
     idle, plpHeld, plpPrice,
     positionsMarkTotal: marks,
+    cetusValue,
+    lendValue,
     positionCount: BigInt(v.position_count ?? 0),
     nav, sharePrice,
     managementFeeBps: BigInt(fees.management_fee_bps ?? 0),

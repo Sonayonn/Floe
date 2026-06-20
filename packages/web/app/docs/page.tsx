@@ -338,7 +338,7 @@ const v = await FloeVault.deploy(floe, {
             <Reveal className="docs-callout">
               <Boxes size={18} />
               <div><strong>Prefer no code?</strong> The in-app deploy flow walks you through the same curator path with a guided form.</div>
-              <Link href="/deploy" className="k-btn k-btn--secondary">Open Deploy <ArrowRight size={14} /></Link>
+              <Link href="/deploy" className="k-btn k-btn--secondary">Deploy <ArrowRight size={14} /></Link>
             </Reveal>
           </Sec>
 
