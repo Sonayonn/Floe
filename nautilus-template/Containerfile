@@ -35,9 +35,13 @@ FROM stagex/user-nit@sha256:60b6eef4534ea6ea78d9f29e4c7feb27407b615424f20ad8943d
 # CAVEATS (read before rebuilding):
 #  • alpine is NOT a StageX image, so THIS stage is not bit-reproducible like the rest — PCR0 is fixed by
 #    this one build. That's fine for Floe: build once, re-anchor (scripts/boot/re-anchor.sh), never rebuild.
-#  • This is the ONE stage that can't be validated from the dev box. Static-linking the aws-c stack + aws-lc
-#    on musl can need iteration (link order, the nsm-api C lib). Build it FIRST on EC2 and confirm
-#    `file /kmstool_enclave_cli` says "statically linked" before building the full .eif.
+#  • This is the ONE stage that can't be validated from the dev box. The binary links the aws-c stack +
+#    aws-lc + libnsm statically but stays DYNAMIC against musl libc (interpreter /lib/ld-musl-x86_64.so.1)
+#    — `file` will say "dynamically linked", and that's correct: the initramfs bundles core-musl, so the
+#    loader + libc are present in-enclave (same model as AWS's AL2 enclave tooling vs glibc). Do NOT force
+#    -static: the sdk-c CMake toggles -Wl,-Bdynamic for the trailing libs, which collides with -static
+#    ("attempted static link of dynamic object libc.so"). Build it FIRST on EC2 and confirm the only
+#    dynamic dep is ld-musl (`file`/`ldd`) before building the full .eif.
 FROM alpine:3.20 AS kmstool
 RUN apk add --no-cache git cmake ninja make gcc g++ musl-dev linux-headers perl go bash curl file
 # Alpine 3.20's cargo is 1.78, which predates edition2024 — but nsm-api's fresh transitive deps
@@ -70,7 +74,7 @@ RUN set -eux; \
     cp target/release/nsm.h /usr/include/
 RUN set -eux; \
     git clone --depth 1 https://github.com/aws/aws-nitro-enclaves-sdk-c.git; \
-    cmake -S aws-nitro-enclaves-sdk-c -B aws-nitro-enclaves-sdk-c/build $CMAKE_ARGS -DCMAKE_EXE_LINKER_FLAGS="-static"; \
+    cmake -S aws-nitro-enclaves-sdk-c -B aws-nitro-enclaves-sdk-c/build $CMAKE_ARGS; \
     cmake --build aws-nitro-enclaves-sdk-c/build --target install; \
     cp /usr/bin/kmstool_enclave_cli /kmstool_enclave_cli; \
     file /kmstool_enclave_cli || true
