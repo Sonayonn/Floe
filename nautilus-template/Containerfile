@@ -39,7 +39,7 @@ FROM stagex/user-nit@sha256:60b6eef4534ea6ea78d9f29e4c7feb27407b615424f20ad8943d
 #    on musl can need iteration (link order, the nsm-api C lib). Build it FIRST on EC2 and confirm
 #    `file /kmstool_enclave_cli` says "statically linked" before building the full .eif.
 FROM alpine:3.20 AS kmstool
-RUN apk add --no-cache git cmake ninja make gcc g++ musl-dev linux-headers perl go bash
+RUN apk add --no-cache git cmake ninja make gcc g++ musl-dev linux-headers perl go bash cargo
 ENV CMAKE_ARGS="-DCMAKE_PREFIX_PATH=/usr -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_TESTING=0 -DBUILD_SHARED_LIBS=0 -GNinja"
 WORKDIR /src
 RUN set -eux; \
@@ -53,8 +53,15 @@ RUN set -eux; \
     build https://github.com/awslabs/aws-c-compression.git     v0.2.14              aws-c-compression; \
     build https://github.com/awslabs/aws-c-http.git            v0.7.6               aws-c-http; \
     build https://github.com/awslabs/aws-c-auth.git            v0.6.15              aws-c-auth; \
-    build https://github.com/json-c/json-c.git                 json-c-0.16-20220414 json-c; \
-    build https://github.com/aws/aws-nitro-enclaves-nsm-api.git v0.4.0              aws-nitro-enclaves-nsm-api
+    build https://github.com/json-c/json-c.git                 json-c-0.16-20220414 json-c
+# nsm-api is a Rust/Cargo project (no CMakeLists.txt) — build the C lib with cargo, not the build() helper.
+# v0.4.0 nsm-lib is crate-type = [staticlib, cdylib, rlib]; copy only the .a so the kmstool link stays static.
+RUN set -eux; \
+    git clone --depth 1 -b v0.4.0 https://github.com/aws/aws-nitro-enclaves-nsm-api.git; \
+    cd aws-nitro-enclaves-nsm-api; \
+    cargo build --release --jobs "$(nproc)" -p nsm-lib; \
+    cp target/release/libnsm.a /usr/lib/; \
+    cp target/release/nsm.h /usr/include/
 RUN set -eux; \
     git clone --depth 1 https://github.com/aws/aws-nitro-enclaves-sdk-c.git; \
     cmake -S aws-nitro-enclaves-sdk-c -B aws-nitro-enclaves-sdk-c/build $CMAKE_ARGS; \
