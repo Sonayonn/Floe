@@ -7,11 +7,11 @@
  *   npx tsx scripts/check-caps.ts <founder-addr> <operator-addr> <fresh-addr>
  * or set CHECK_ADDRS="0xfounder,0xoperator,0xfresh".
  */
-import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
+import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 import { FLOE_ADDRESSES } from "../src/constants.ts";
 
 const ORIG = FLOE_ADDRESSES.testnet.packageOriginal; // OwnerCap/ExecCap origin: ${ORIG}::floe::*
-const sui = new SuiClient({ url: getFullnodeUrl("testnet") });
+const sui = new SuiJsonRpcClient({ url: getJsonRpcFullnodeUrl("testnet") });
 
 const VAULTS: { name: string; id: string }[] = [
   { name: "Floe Stratos",     id: "0xea33fe41c7512a1a36be417b0ce400ada0db0d9fe54f2ade75662aaef987de2e" },
