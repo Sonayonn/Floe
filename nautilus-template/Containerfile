@@ -70,7 +70,7 @@ RUN set -eux; \
     cp target/release/nsm.h /usr/include/
 RUN set -eux; \
     git clone --depth 1 https://github.com/aws/aws-nitro-enclaves-sdk-c.git; \
-    cmake -S aws-nitro-enclaves-sdk-c -B aws-nitro-enclaves-sdk-c/build $CMAKE_ARGS; \
+    cmake -S aws-nitro-enclaves-sdk-c -B aws-nitro-enclaves-sdk-c/build $CMAKE_ARGS -DCMAKE_EXE_LINKER_FLAGS="-static"; \
     cmake --build aws-nitro-enclaves-sdk-c/build --target install; \
     cp /usr/bin/kmstool_enclave_cli /kmstool_enclave_cli; \
     file /kmstool_enclave_cli || true
