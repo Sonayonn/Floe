@@ -41,9 +41,12 @@ use tokio::process::Command;
 
 const KMSTOOL: &str = "/usr/bin/kmstool_enclave_cli";
 
-/// Recover the stable keypair: decrypt the sealed seed if the host handed one in, else mint + seal on
-/// first boot and emit the ciphertext for the operator to persist.
-pub async fn load_or_init() -> Result<Ed25519KeyPair> {
+/// Recover the stable keypair. Returns `(keypair, first_boot_ciphertext)`:
+///   • recovery boot  : host handed in FLOE_SEALED_CIPHERTEXT → decrypt → (kp, None)
+///   • first boot ever: mint + seal a new seed → (kp, Some(ciphertext_b64))
+/// On first boot the caller stashes the ciphertext in AppState so the host can fetch it over
+/// /sealed_ciphertext and persist it — NO enclave console/debug needed (production-mode safe).
+pub async fn load_or_init() -> Result<(Ed25519KeyPair, Option<String>)> {
     let key_id = std::env::var("FLOE_KMS_KEY_ID").context("FLOE_KMS_KEY_ID must be set for floe-nav")?;
     let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
     let creds = AwsCreds::from_env().context("AWS instance-role creds must be passed into the enclave")?;
@@ -55,16 +58,17 @@ pub async fn load_or_init() -> Result<Ed25519KeyPair> {
         let seed = kms_decrypt(&key_id, &region, &creds, sealed).await
             .context("kmstool decrypt of sealed enclave seed failed (check PCR0 key policy + vsock-proxy + creds)")?;
         tracing::info!("sealed_key: recovered stable signing key from KMS ({} bytes)", seed.len());
-        keypair_from_seed(&seed)
+        Ok((keypair_from_seed(&seed)?, None))
     } else {
         // First boot ever: KMS GenerateDataKey gives us a fresh 32-byte seed AND its ciphertext.
         let (ciphertext_b64, seed) = kms_genkey(&key_id, &region, &creds).await
             .context("kmstool genkey of new enclave seed failed")?;
-        // The ONLY copy of the ciphertext leaves here. The operator must persist it to
-        // /etc/floe/enclave-sealed-key.json so enclave-up.sh hands it back as FLOE_SEALED_CIPHERTEXT next boot.
-        tracing::warn!("sealed_key: FIRST BOOT — new stable key sealed. Persist this ciphertext on the host:");
+        // The ONLY copy of the ciphertext leaves the enclave via /sealed_ciphertext (the host persists
+        // it to /etc/floe/enclave-sealed-key.json, handed back as FLOE_SEALED_CIPHERTEXT next boot).
+        // Still logged for debugging; the seed itself never leaves the enclave.
+        tracing::warn!("sealed_key: FIRST BOOT — new stable key sealed; serving ciphertext over /sealed_ciphertext.");
         tracing::warn!("FLOE_SEALED_CIPHERTEXT={ciphertext_b64}");
-        keypair_from_seed(&seed)
+        Ok((keypair_from_seed(&seed)?, Some(ciphertext_b64)))
     }
 }
 

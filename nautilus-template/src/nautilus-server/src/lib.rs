@@ -51,6 +51,10 @@ pub struct AppState {
     pub eph_kp: Ed25519KeyPair,
     /// API key when querying api.weatherapi.com
     pub api_key: String,
+    /// floe-nav first-boot only: the KMS-sealed seed ciphertext the host must persist (served once
+    /// over /sealed_ciphertext so enclave-up.sh can capture it WITHOUT enclave console/debug mode).
+    /// `None` on recovery boots (the host already holds it). See src/sealed_key.rs.
+    pub sealed_ciphertext: Option<String>,
 }
 
 /// Implement IntoResponse for EnclaveError.

@@ -31,25 +31,8 @@ echo "[enclave-up] running, CID=$ECID EnclaveID=$EID"
 pkill -f 'vsock-proxy 8101' 2>/dev/null || true
 vsock-proxy 8101 "kms.${REGION}.amazonaws.com" 443 >/var/log/floe-vsock-kms.log 2>&1 &
 
-# 3) On first boot (no persisted ciphertext yet), capture the one the enclave emits to its console and
-#    persist it BEFORE we'd ever reboot. Best-effort background tail; harmless once the file exists.
-if [ ! -s "$SEALED" ]; then
-  echo "[enclave-up] first boot: watching console for the sealed ciphertext to persist -> $SEALED"
-  mkdir -p "$(dirname "$SEALED")"
-  (
-    nitro-cli console --enclave-id "$EID" 2>/dev/null | while IFS= read -r line; do
-      case "$line" in
-        *FLOE_SEALED_CIPHERTEXT=*)
-          ct="${line#*FLOE_SEALED_CIPHERTEXT=}"
-          ct="${ct%$'\r'}"; ct="${ct%% *}"   # strip CR / any trailing field
-          jq -n --arg ct "$ct" '{ciphertext:$ct}' > "$SEALED.tmp" && mv "$SEALED.tmp" "$SEALED"
-          chmod 600 "$SEALED"
-          echo "[enclave-up] captured + persisted sealed ciphertext (${#ct} b64 chars)"
-          break ;;
-      esac
-    done
-  ) &
-fi
+# 3) (First-boot ciphertext capture happens AFTER the enclave HTTP is exposed — see step 7. The enclave
+#    serves it over /sealed_ciphertext, so we never need its console / debug mode, which would zero PCR0.)
 
 # 4) fetch short-lived instance-role creds (IMDSv2) — kmstool needs them passed in as flags.
 IMDS_TOKEN=$(curl -sf -X PUT "http://169.254.169.254/latest/api/token" \
@@ -77,3 +60,23 @@ printf '%s' "$SECRETS" | socat - "VSOCK-CONNECT:$ECID:7777" || echo "[enclave-up
 pkill -f "VSOCK-CONNECT:.*:3000" 2>/dev/null || true
 socat TCP4-LISTEN:3000,reuseaddr,fork "VSOCK-CONNECT:$ECID:3000" &
 echo "[enclave-up] exposed on localhost:3000"
+
+# 7) First boot only: capture the KMS-sealed seed ciphertext the enclave just minted and persist it so
+#    the NEXT boot recovers the SAME key. The enclave serves it over /sealed_ciphertext (empty on
+#    recovery boots), so this is production-mode safe — no enclave console / debug. Idempotent: once
+#    $SEALED exists we skip. The blob is KMS-encrypted (only our PCR0 can decrypt), safe to fetch on-box.
+if [ ! -s "$SEALED" ]; then
+  echo "[enclave-up] first boot: fetching sealed ciphertext from the enclave -> $SEALED"
+  mkdir -p "$(dirname "$SEALED")"
+  for _ in $(seq 1 40); do
+    CT=$(curl -sf -m 5 http://localhost:3000/sealed_ciphertext || true)
+    if [ -n "$CT" ]; then
+      jq -n --arg ct "$CT" '{ciphertext:$ct}' > "$SEALED.tmp" && mv "$SEALED.tmp" "$SEALED"
+      chmod 600 "$SEALED"
+      echo "[enclave-up] captured + persisted sealed ciphertext (${#CT} b64 chars)"
+      break
+    fi
+    sleep 3
+  done
+  [ -s "$SEALED" ] || echo "[enclave-up] WARN: no ciphertext captured — check enclave logs + KMS policy/PCR0 (genkey gated on PCR0)"
+fi

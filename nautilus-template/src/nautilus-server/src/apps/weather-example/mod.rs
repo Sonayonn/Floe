@@ -89,6 +89,7 @@ mod test {
         let state = Arc::new(AppState {
             eph_kp: Ed25519KeyPair::generate(&mut rand::thread_rng()),
             api_key: "045a27812dbe456392913223221306".to_string(),
+            sealed_ciphertext: None,
         });
         let signed_weather_response = process_data(
             State(state),

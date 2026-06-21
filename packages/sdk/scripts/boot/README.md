@@ -50,10 +50,15 @@ let eph_kp = match read_sealed_seed_over_vsock(7777) {            // blob handed
 - Needs crates: `aws-nitro-enclaves-nsm-api` (attestation), `aws-sdk-kms` (or raw KMS over the proxy).
 
 ### AWS setup (one-time, your hands)
-1. **KMS key** (symmetric). Key policy: allow `kms:Decrypt`/`kms:Encrypt` to the instance role **only when**
-   `kms:RecipientAttestation:PCR0` equals the enclave's PCR0. (This is the lock — only the right enclave decrypts.)
+1. **KMS key** (symmetric). Key policy: allow `kms:GenerateDataKey` (first boot) + `kms:Decrypt` (every
+   later boot) to the instance role **only when** `kms:RecipientAttestation:PCR0` equals the enclave's
+   PCR0. (This is the lock — only the right enclave mints/recovers the seed.) The enclave runs in
+   production mode (never debug), so its attestation always carries the real PCR0 and genkey is allowed.
 2. **Instance IAM role** with that KMS permission, attached to the EC2 instance.
-3. The sealed ciphertext blob → `/etc/floe/enclave-sealed-key.json` on the parent (printed once on first boot).
+3. The sealed ciphertext blob → `/etc/floe/enclave-sealed-key.json` on the parent. **Captured
+   automatically**: on first boot the enclave serves the ciphertext over `/sealed_ciphertext` (on the
+   on-box vsock:3000) and `enclave-up.sh` fetches + persists it — no enclave console/debug needed (debug
+   mode would zero the PCR0 and break the KMS lock). It's KMS-encrypted, so on-box exposure is safe.
 
 ## One-time re-anchor (after the stable key is live)
 The new `.eif` has a new PCR0 and the stable key a new pubkey, so re-anchor ONCE:
