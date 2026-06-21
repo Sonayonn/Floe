@@ -39,7 +39,7 @@ FROM stagex/user-nit@sha256:60b6eef4534ea6ea78d9f29e4c7feb27407b615424f20ad8943d
 #    on musl can need iteration (link order, the nsm-api C lib). Build it FIRST on EC2 and confirm
 #    `file /kmstool_enclave_cli` says "statically linked" before building the full .eif.
 FROM alpine:3.20 AS kmstool
-RUN apk add --no-cache git cmake ninja make gcc g++ musl-dev linux-headers perl go bash curl
+RUN apk add --no-cache git cmake ninja make gcc g++ musl-dev linux-headers perl go bash curl file
 # Alpine 3.20's cargo is 1.78, which predates edition2024 — but nsm-api's fresh transitive deps
 # (e.g. getrandom v0.4.x) now require it. nsm-api v0.4.0 ships no Cargo.lock, so we can't pin to an
 # era-appropriate resolution; install a modern pinned Rust via rustup instead. (This stage is already
