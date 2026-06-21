@@ -23,5 +23,7 @@ export {
 export {
   poolState, fetchSignedValuation,
   supply, withdraw, lockAndBorrow, repay, liquidate, borrowAndTradePredict,
+  // Vault-read borrow path (no enclave round-trip): browser borrows by passing only the vault.
+  lockAndBorrowFromVault, liquidateFromVault, healthFactorFromVault,
   type PoolState, type SignedValuation,
 } from './lend/index.ts';

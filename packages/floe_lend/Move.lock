@@ -22,11 +22,17 @@ use_environment = "testnet"
 manifest_digest = "5745706258F61D6CE210904B3E6AE87A73CE9D31A6F93BE4718C442529332A87"
 deps = { std = "MoveStdlib", sui = "Sui" }
 
+[pinned.testnet.floe]
+source = { local = "../move" }
+use_environment = "testnet"
+manifest_digest = "5745706258F61D6CE210904B3E6AE87A73CE9D31A6F93BE4718C442529332A87"
+deps = { std = "MoveStdlib", sui = "Sui" }
+
 [pinned.testnet.floe_lend]
 source = { root = true }
 use_environment = "testnet"
-manifest_digest = "A695AAB5E64FC1BE094D7BE8C84AEEA02434B7F089F77285CF20955506164A44"
-deps = { enclave = "enclave", floe_nav = "floe_nav", std = "MoveStdlib", sui = "Sui" }
+manifest_digest = "6797DBBB6A25D35308D442F998783E1088AB80C2157BE7BDF6839B69E33E71F9"
+deps = { enclave = "enclave", floe = "floe", floe_nav = "floe_nav", std = "MoveStdlib", sui = "Sui" }
 
 [pinned.testnet.floe_nav]
 source = { local = "../floe_nav" }

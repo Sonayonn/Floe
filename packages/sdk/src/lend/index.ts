@@ -168,7 +168,72 @@ export function liquidate(
   return tx;
 }
 
+// ─── Vault-read borrow path (no enclave round-trip) ──────────────────────────
+// These mirror lockAndBorrow / liquidate but value the collateral by reading the vault's ATTESTED
+// nav_lower_bound + share_supply DIRECTLY on-chain (kept fresh by the NAV heartbeat), so the caller
+// passes only the vault object — no live /sign_collateral call to the enclave, no SignedValuation.
+// A browser can borrow with just an RPC read + the user's wallet. Security is identical: the
+// contract values collateral at the un-inflatable NAV floor and asserts freshness (is_price_fresh).
+// Requires the floe_lend package upgrade that adds *_from_vault (scripts/upgrade-lend.ts).
+export function lockAndBorrowFromVault(
+  floe: FloeClient, pool: string, vaultId: string, collateralCoinId: string, borrowAmount: bigint,
+  typeQ: string, typeS: string, recipient?: string, collateralAmount?: bigint,
+): Transaction {
+  const a = floe.addresses;
+  const me = recipientOf(floe, recipient);
+  const tx = new Transaction();
+  const collateral = collateralAmount === undefined
+    ? tx.object(collateralCoinId)
+    : tx.splitCoins(tx.object(collateralCoinId), [tx.pure.u64(collateralAmount)])[0];
+  const [loan, debt] = tx.moveCall({
+    target: `${a.lend.package}::${a.lend.module}::lock_and_borrow_from_vault`,
+    typeArguments: [typeQ, typeS],
+    arguments: [
+      tx.object(pool), tx.object(vaultId), collateral, tx.pure.u64(borrowAmount), tx.object(a.clock),
+    ],
+  });
+  tx.transferObjects([loan, debt], me);
+  return tx;
+}
+
+export function liquidateFromVault(
+  floe: FloeClient, pool: string, position: string, repaymentCoinId: string, vaultId: string,
+  typeQ: string, typeS: string, recipient?: string,
+): Transaction {
+  const a = floe.addresses;
+  const me = recipientOf(floe, recipient);
+  const tx = new Transaction();
+  const [seized, leftover] = tx.moveCall({
+    target: `${a.lend.package}::${a.lend.module}::liquidate_from_vault`,
+    typeArguments: [typeQ, typeS],
+    arguments: [
+      tx.object(pool), tx.object(position), tx.object(repaymentCoinId), tx.object(vaultId),
+      tx.object(a.clock),
+    ],
+  });
+  tx.transferObjects([seized, leftover], me);
+  return tx;
+}
+
 // ─── Reads ────────────────────────────────────────────────────────────────────
+/** Health factor (bps) read straight from the vault's attested NAV — no enclave. >10000 healthy. */
+export async function healthFactorFromVault(
+  floe: FloeClient, pool: string, position: string, vaultId: string, typeQ: string, typeS: string,
+): Promise<bigint> {
+  const a = floe.addresses;
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${a.lend.package}::${a.lend.module}::health_factor_from_vault_bps`,
+    typeArguments: [typeQ, typeS],
+    arguments: [tx.object(pool), tx.object(position), tx.object(vaultId), tx.object(a.clock)],
+  });
+  const r = await floe.sui.devInspectTransactionBlock({
+    transactionBlock: tx, sender: floe.address ?? '0x'.padEnd(66, '0'),
+  });
+  const rv = r.results?.[0]?.returnValues?.[0];
+  return rv ? u64le(rv[0] as number[]) : 0n;
+}
+
 export async function poolState(
   floe: FloeClient, pool: string, typeQ: string, typeS: string,
 ): Promise<PoolState> {

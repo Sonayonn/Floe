@@ -25,6 +25,9 @@ use sui::event;
 use std::option;
 use enclave::enclave::{Self, Enclave};
 use floe_nav::floe_nav::FLOE_NAV;
+// Vault-read borrow path: read the vault's ATTESTED nav_lower_bound + share_supply directly,
+// instead of consuming an enclave-signed intent-3 snapshot. See the "Vault-read borrow" section.
+use floe::floe::{Self, Vault};
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const INDEX_SCALE: u128 = 1_000_000_000_000_000_000;   // 1e18 fixed-point interest indices
@@ -43,6 +46,7 @@ const EWrongPool: u64 = 4;
 const EBadValuationSig: u64 = 6;
 const EStaleValuation: u64 = 7;
 const EValuationWrongVault: u64 = 8;
+const EVaultStale: u64 = 9;             // vault-read path: vault's attested NAV is not fresh
 
 // ─── Core objects ────────────────────────────────────────────────────────────
 
@@ -447,6 +451,102 @@ public fun liquidate<Q, S>(
         pool_id: object::id(pool), debt_repaid: debt, collateral_seized: col_amount,
     });
     // return (seized collateral, leftover repayment) to the liquidator
+    (seized, repayment)
+}
+
+// ─── Vault-read borrow path: borrow/liquidate by reading the vault's ATTESTED NAV directly ───
+// Same collateral oracle as the signed-valuation path (the un-inflatable nav_lower_bound floor),
+// but it reads nav_lower_bound + share_supply DIRECTLY off the on-chain Vault<Q,S> — which the NAV
+// heartbeat already keeps fresh (floe::update_nav_attested). floe::is_price_fresh gates staleness
+// (idle vaults are always fresh; PLP-holding vaults require a fresh attested PLP price), so you
+// cannot borrow against a stale NAV. The point: a browser borrows by passing ONLY the vault object
+// — no live enclave round-trip for an intent-3 signature, no keeper work beyond the existing NAV
+// heartbeat. The value is still the floor, so collateral cannot be over-valued. Security is
+// equivalent to the signed path; only the transport of the (already on-chain) attested NAV differs.
+
+/// Lower-bound price per share unit (6dp) from the vault's attested floor. Asserts the vault is
+/// THIS pool's vault and that its attested NAV is fresh.
+fun vault_price<Q, S>(pool: &LendingPool<Q, S>, vault: &Vault<Q, S>, clock: &Clock): u64 {
+    assert!(object::id(vault) == pool.vault_id, EValuationWrongVault);
+    assert!(floe::is_price_fresh(vault, clock), EVaultStale);
+    let supply = floe::share_supply(vault);
+    if (supply == 0) return 0;
+    mul_div(floe::nav_lower_bound(vault), SHARE_PRICE_SCALE, supply)
+}
+
+/// Lock SHARE collateral and borrow Q, valuing collateral at the vault's attested NAV floor read
+/// straight from `vault`. No enclave/signature argument. Borrow is capped at ltv_bps of value.
+public fun lock_and_borrow_from_vault<Q, S>(
+    pool: &mut LendingPool<Q, S>,
+    vault: &Vault<Q, S>,
+    collateral: Coin<S>,
+    borrow_amount: u64,
+    clock: &Clock, ctx: &mut TxContext,
+): (Coin<Q>, DebtPosition<Q, S>) {
+    accrue(pool, clock);
+    let collateral_amount = coin::value(&collateral);
+    assert!(collateral_amount > 0 && borrow_amount > 0, EZeroAmount);
+    assert!(balance::value(&pool.reserve) >= borrow_amount, EInsufficientReserve);
+
+    let price = vault_price(pool, vault, clock);
+    let collateral_val = collateral_value(price, collateral_amount);
+    let max_borrow = (((collateral_val as u128) * (pool.ltv_bps as u128)) / BPS) as u64;
+    assert!(borrow_amount <= max_borrow, EExceedsLtv);
+
+    let loan = coin::from_balance(pool.reserve.split(borrow_amount), ctx);
+    pool.total_borrowed = pool.total_borrowed + borrow_amount;
+    event::emit(Borrowed { pool_id: object::id(pool), collateral: collateral_amount, borrowed: borrow_amount });
+    let pos = DebtPosition<Q, S> {
+        id: object::new(ctx),
+        pool_id: object::id(pool),
+        collateral: coin::into_balance(collateral),
+        debt_principal: borrow_amount,
+        index_at_open: pool.borrow_index,
+    };
+    (loan, pos)
+}
+
+/// Health factor in bps using the vault-read valuation. >10000 healthy, <10000 liquidatable.
+public fun health_factor_from_vault_bps<Q, S>(
+    pool: &LendingPool<Q, S>, pos: &DebtPosition<Q, S>, vault: &Vault<Q, S>, clock: &Clock,
+): u64 {
+    assert!(pos.pool_id == object::id(pool), EWrongPool);
+    let price = vault_price(pool, vault, clock);
+    let col_val = collateral_value(price, balance::value(&pos.collateral));
+    let debt = current_debt(pool, pos);
+    if (debt == 0) return 1_000_000_000;
+    (((col_val as u128) * (pool.liq_threshold_bps as u128)) / (debt as u128)) as u64
+}
+
+/// Liquidate an unhealthy position using the vault-read valuation. Permissionless (same as
+/// `liquidate`); health is checked against the attested floor read from `vault`.
+public fun liquidate_from_vault<Q, S>(
+    pool: &mut LendingPool<Q, S>, pos: DebtPosition<Q, S>, mut repayment: Coin<Q>,
+    vault: &Vault<Q, S>, clock: &Clock, ctx: &mut TxContext,
+): (Coin<S>, Coin<Q>) {
+    assert!(pos.pool_id == object::id(pool), EWrongPool);
+    accrue(pool, clock);
+
+    let price = vault_price(pool, vault, clock);
+    let col_amount = balance::value(&pos.collateral);
+    let col_val = collateral_value(price, col_amount);
+    let debt = current_debt(pool, &pos);
+
+    let hf = if (debt == 0) 1_000_000_000
+        else (((col_val as u128) * (pool.liq_threshold_bps as u128)) / (debt as u128)) as u64;
+    assert!(hf < 10_000, EPositionHealthy);
+
+    let pay = coin::value(&repayment);
+    assert!(pay >= debt, EZeroAmount);
+    let debt_coin = coin::split(&mut repayment, debt, ctx);
+    pool.reserve.join(coin::into_balance(debt_coin));
+    pool.total_borrowed = if (pool.total_borrowed > debt) pool.total_borrowed - debt else 0;
+
+    let DebtPosition { id, pool_id: _, collateral, debt_principal: _, index_at_open: _ } = pos;
+    object::delete(id);
+    let seized = coin::from_balance(collateral, ctx);
+
+    event::emit(Liquidated { pool_id: object::id(pool), debt_repaid: debt, collateral_seized: col_amount });
     (seized, repayment)
 }
 

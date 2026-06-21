@@ -108,3 +108,29 @@ Manager or a `0640` root-owned `/etc/floe/keeper.env`.
 ## Day-to-day
 Stop the instance to save cost. **Start** it from the console → `floe-enclave` relaunches the enclave
 (stable key) → `floe-keeper` waits, re-attests once, then heartbeats. No terminal, no redeploy.
+
+## Borrow for web users — the vault-read path (no enclave round-trip)
+
+A live borrow needs a *fresh* attested collateral valuation. The original `lock_and_borrow` takes an
+enclave-signed intent-3 snapshot — fine for the operator on-box, but a browser can't reach the enclave
+(by design: the box has no public IP). The fix needs **zero extra keeper work**: the vault *already*
+stores the attested `nav_lower_bound` + `share_supply`, kept fresh by the existing NAV heartbeat. So a
+new borrow path reads them **straight off the on-chain vault** instead of a signed snapshot.
+
+- Move (`floe_lend`): `lock_and_borrow_from_vault`, `liquidate_from_vault`, `health_factor_from_vault_bps`
+  take `&Vault<Q,S>`, assert `is_price_fresh`, and value collateral at the un-inflatable NAV floor —
+  **same security** as the signed path (collateral can't be over-valued), only the transport differs.
+  Existing functions are untouched, so this is a **compatible upgrade** (existing pools keep working).
+- SDK: `FloeLend.lockAndBorrowFromVault / liquidateFromVault / healthFactorFromVault` — a browser
+  borrows with just an RPC read + the user's wallet. No `/sign_collateral`, no public enclave endpoint.
+
+### One-time deploy (parallel to the enclave bring-up; needs the floe_lend UpgradeCap)
+```bash
+cd /opt/floe/packages/sdk
+set -a; . scripts/.env; set +a
+npx tsx scripts/upgrade-lend.ts          # compatible upgrade → prints the NEW floe_lend package id
+#   then: constants.ts → lend.package = <new id>   (module/pools/upgradeCap unchanged); redeploy web
+npx tsx scripts/borrow-verify-vault.ts   # proves a borrow with NO enclave round-trip
+```
+After this, web users borrow against live, hardware-attested collateral with no dependency on reaching
+the enclave — the NAV heartbeat that already runs is the *only* moving part.

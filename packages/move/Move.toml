@@ -8,3 +8,9 @@ edition = "2024"         # edition = "legacy" to use legacy (pre-2024) Move
 
 # Read more about the package management system options:
 # https://docs.sui.io/guides/developer/sui-101/move-package-management
+
+[addresses]
+# Declare the self-binding (legacy address style) so legacy-style dependents (floe_lend) can take
+# this package as a local dependency — mirrors floe_nav. "0x0" is the publish-time placeholder; the
+# on-chain id is resolved from Move.lock / the explicit package arg at upgrade time.
+floe = "0x0"
