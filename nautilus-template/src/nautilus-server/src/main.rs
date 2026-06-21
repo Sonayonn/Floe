@@ -3,6 +3,7 @@
 
 use anyhow::Result;
 use axum::{routing::get, routing::post, Router};
+#[cfg(not(feature = "floe-nav"))]
 use fastcrypto::{ed25519::Ed25519KeyPair, traits::KeyPair};
 use nautilus_server::app::process_data;
 #[cfg(feature = "floe-nav")]

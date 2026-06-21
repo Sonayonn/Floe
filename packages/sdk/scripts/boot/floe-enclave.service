@@ -10,6 +10,9 @@ Type=forking
 # starts the KMS vsock-proxy, provisions the sealed key, and exposes localhost:3000.
 Environment=AWS_REGION=us-east-1
 Environment=FLOE_EIF=/opt/floe/nautilus-template/out/nitro.eif
+# KMS key whose policy releases GenerateDataKey/Decrypt only to the enclave's PCR0. Paste the ARN from
+# the us-east-1 KMS key you created (the one with the PCR0 placeholder in its policy).
+Environment=FLOE_KMS_KEY_ID=REPLACE_WITH_KMS_KEY_ARN
 ExecStart=/opt/floe/packages/sdk/scripts/boot/enclave-up.sh
 ExecStop=/usr/bin/nitro-cli terminate-enclave --all
 RemainAfterExit=yes

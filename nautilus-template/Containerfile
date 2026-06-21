@@ -27,6 +27,41 @@ FROM stagex/user-socat@sha256:4d1b7a403eba65087a3f69200d2644d01b63f0ea81ef171ced
 FROM stagex/user-jq@sha256:0c75672e97f54b83661aaa498e053340305e79cdc2004a40d92b7bf5ce906e9c AS user-jq
 FROM stagex/user-nit@sha256:60b6eef4534ea6ea78d9f29e4c7feb27407b615424f20ad8943d807191688be7 AS user-nit
 
+# --- kmstool_enclave_cli (floe-nav): the attestation-gated KMS client sealed_key.rs shells out to. ---
+# Mirrors aws/aws-nitro-enclaves-sdk-c containers/Dockerfile.al2 (SAME pinned refs) but built STATIC
+# against musl on alpine instead of dynamic against glibc on AL2 — a glibc binary can't load in the musl
+# initramfs below. The single static binary is copied to initramfs/usr/bin/kmstool_enclave_cli (sealed_key.rs:KMSTOOL).
+#
+# CAVEATS (read before rebuilding):
+#  • alpine is NOT a StageX image, so THIS stage is not bit-reproducible like the rest — PCR0 is fixed by
+#    this one build. That's fine for Floe: build once, re-anchor (scripts/boot/re-anchor.sh), never rebuild.
+#  • This is the ONE stage that can't be validated from the dev box. Static-linking the aws-c stack + aws-lc
+#    on musl can need iteration (link order, the nsm-api C lib). Build it FIRST on EC2 and confirm
+#    `file /kmstool_enclave_cli` says "statically linked" before building the full .eif.
+FROM alpine:3.20 AS kmstool
+RUN apk add --no-cache git cmake ninja make gcc g++ musl-dev linux-headers perl go bash
+ENV CMAKE_ARGS="-DCMAKE_PREFIX_PATH=/usr -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_TESTING=0 -DBUILD_SHARED_LIBS=0 -GNinja"
+WORKDIR /src
+RUN set -eux; \
+    build() { git clone --depth 1 -b "$2" "$1" "$3"; cmake -S "$3" -B "$3/build" $CMAKE_ARGS ${4:-}; cmake --build "$3/build" --target install; }; \
+    build https://github.com/awslabs/aws-lc.git                v1.12.0              aws-lc; \
+    build https://github.com/aws/s2n-tls.git                   v1.3.46              s2n-tls; \
+    build https://github.com/awslabs/aws-c-common.git          v0.8.0               aws-c-common; \
+    build https://github.com/awslabs/aws-c-sdkutils.git        v0.1.2               aws-c-sdkutils; \
+    build https://github.com/awslabs/aws-c-cal.git             v0.5.18              aws-c-cal; \
+    build https://github.com/awslabs/aws-c-io.git              v0.11.0              aws-c-io; \
+    build https://github.com/awslabs/aws-c-compression.git     v0.2.14              aws-c-compression; \
+    build https://github.com/awslabs/aws-c-http.git            v0.7.6               aws-c-http; \
+    build https://github.com/awslabs/aws-c-auth.git            v0.6.15              aws-c-auth; \
+    build https://github.com/json-c/json-c.git                 json-c-0.16-20220414 json-c; \
+    build https://github.com/aws/aws-nitro-enclaves-nsm-api.git v0.4.0              aws-nitro-enclaves-nsm-api
+RUN set -eux; \
+    git clone --depth 1 https://github.com/aws/aws-nitro-enclaves-sdk-c.git; \
+    cmake -S aws-nitro-enclaves-sdk-c -B aws-nitro-enclaves-sdk-c/build $CMAKE_ARGS; \
+    cmake --build aws-nitro-enclaves-sdk-c/build --target install; \
+    cp /usr/bin/kmstool_enclave_cli /kmstool_enclave_cli; \
+    file /kmstool_enclave_cli || true
+
 FROM scratch AS base
 COPY --from=core-busybox . /
 COPY --from=core-musl . /
@@ -71,6 +106,8 @@ COPY --from=core-busybox /bin/sh initramfs/sh
 COPY --from=user-jq /bin/jq initramfs
 COPY --from=user-socat /bin/socat . initramfs
 COPY --from=user-nit /bin/init initramfs
+# floe-nav: the static KMS client sealed_key.rs invokes at /usr/bin/kmstool_enclave_cli
+COPY --from=kmstool /kmstool_enclave_cli initramfs/usr/bin/kmstool_enclave_cli
 RUN cp /src/nautilus-server/target/${TARGET}/release/nautilus-server initramfs
 RUN cp /src/nautilus-server/traffic_forwarder.py initramfs/
 RUN cp /src/nautilus-server/run.sh initramfs/
