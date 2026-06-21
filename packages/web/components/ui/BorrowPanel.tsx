@@ -1,19 +1,18 @@
 "use client";
 import { useMemo, useState } from "react";
-import { useCurrentAccount, useSignAndExecuteTransaction, useSuiClientQuery } from "@mysten/dapp-kit";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCurrentAccount, useSuiClientQuery } from "@mysten/dapp-kit";
+import { useQueryClient } from "@tanstack/react-query";
 import {
-  fetchSignedValuation, lockAndBorrow, repay,
-  assetFor, FLOE_ADDRESSES, type SignedValuation,
+  lockAndBorrowFromVault, repay,
+  assetFor, FLOE_ADDRESSES,
 } from "@floe/sdk/browser";
 import { useCoins } from "@/lib/hooks/useCoins";
+import { useFloeExecute } from "@/lib/hooks/useFloeExecute";
 import { floeClient } from "@/lib/floe";
 import type { LendMarket } from "@/lib/hooks/useLendMarket";
 import { fmt6 } from "@/lib/format";
 
 const LEND = FLOE_ADDRESSES.testnet.lend;
-// Same-origin proxy (app/api/sign_collateral) → enclave. No CORS dependency, URL stays server-side.
-const ENCLAVE_PROXY = "/api";
 
 type Mode = "borrow" | "repay";
 type Status = { kind: "idle" | "signing" | "ok" | "err"; msg?: string; digest?: string };
@@ -32,25 +31,20 @@ function hfTone(hf: number): "ok" | "warn" | "danger" {
 export function BorrowPanel({ market }: { market: LendMarket }) {
   const account = useCurrentAccount();
   const qc = useQueryClient();
-  const { mutate: signAndExecute, isPending } = useSignAndExecuteTransaction();
+  const execute = useFloeExecute();
+  const [isPending, setIsPending] = useState(false);
 
   const [mode, setMode] = useState<Mode>("borrow");
   const [collateral, setCollateral] = useState("");
   const [borrow, setBorrow] = useState("");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
-  // is the enclave attester wired up server-side? (honest offline state without a borrow attempt)
-  const enclave = useQuery({
-    queryKey: ["enclave-status"],
-    queryFn: async () => {
-      const r = await fetch("/api/sign_collateral");
-      return (await r.json()) as { configured: boolean };
-    },
-    staleTime: 60_000,
-  });
-  const attesterOffline = !enclave.data?.configured;
-
-  const { qType, sType, pricePerShare, pool, vaultId, poolId } = market;
+  const { qType, sType, pricePerShare, pool, vault, vaultId, poolId } = market;
+  // Vault-read borrow values collateral at the vault's on-chain attested NAV floor — no enclave
+  // round-trip. The only liveness condition is that the floor is FRESH (the contract aborts on a
+  // stale NAV via is_price_fresh). Idle vaults are always fresh; PLP-holding vaults stay fresh via
+  // the NAV heartbeat, so borrow pauses only while the heartbeat is down (degraded-stale).
+  const staleNav = !vault.navFresh;
   const qMeta = assetFor(qType);
   const sMeta = assetFor(sType);
 
@@ -90,34 +84,40 @@ export function BorrowPanel({ market }: { market: LendMarket }) {
 
   const canBorrow =
     !!account && collateralRaw > 0n && borrowRaw > 0n && !overLtv && !overLiquidity &&
-    !noCollateral && shareCoins.length > 0 && !isPending && status.kind !== "signing" && !attesterOffline;
+    !noCollateral && shareCoins.length > 0 && !isPending && status.kind !== "signing" && !staleNav;
 
   async function doBorrow() {
     if (!account || shareCoins.length === 0) return;
-    setStatus({ kind: "signing", msg: "Requesting enclave-signed valuation…" });
+    setStatus({ kind: "idle" });
+    setIsPending(true);
+    const floe = floeClient();
+    // Vault-read path: the contract reads the attested floor straight off the vault and locks exactly
+    // the typed collateral. No enclave call, no signed valuation — just an RPC read + the user's wallet.
+    const tx = lockAndBorrowFromVault(floe, poolId, vaultId, shareCoins[0].coinObjectId, borrowRaw, qType, sType, account.address, collateralRaw);
     try {
-      const floe = floeClient();
-      const v: SignedValuation = await fetchSignedValuation(floe, vaultId, qType, sType, ENCLAVE_PROXY);
-      // lock exactly the typed collateral (lock_and_borrow locks the whole coin otherwise)
-      const tx = lockAndBorrow(floe, poolId, shareCoins[0].coinObjectId, borrowRaw, v, qType, sType, account.address, collateralRaw);
-      signAndExecute({ transaction: tx }, {
-        onSuccess: (res) => { setStatus({ kind: "ok", digest: res.digest }); setBorrow(""); setCollateral(""); invalidate(); },
-        onError: (e) => setStatus({ kind: "err", msg: (e as Error).message }),
-      });
+      const res = await execute(tx);
+      setStatus({ kind: "ok", digest: res.digest }); setBorrow(""); setCollateral(""); invalidate();
     } catch (e) {
-      setStatus({ kind: "err", msg: `Attested valuation unavailable — ${(e as Error).message}` });
+      setStatus({ kind: "err", msg: (e as Error).message });
+    } finally {
+      setIsPending(false);
     }
   }
 
-  function doRepay() {
+  async function doRepay() {
     if (!account || positions.length === 0 || qCoins.length === 0) return;
     setStatus({ kind: "idle" });
+    setIsPending(true);
     const floe = floeClient();
     const tx = repay(floe, poolId, positions[0].id, qCoins[0].coinObjectId, qType, sType, account.address);
-    signAndExecute({ transaction: tx }, {
-      onSuccess: (res) => { setStatus({ kind: "ok", digest: res.digest }); invalidate(); },
-      onError: (e) => setStatus({ kind: "err", msg: (e as Error).message }),
-    });
+    try {
+      const res = await execute(tx);
+      setStatus({ kind: "ok", digest: res.digest }); invalidate();
+    } catch (e) {
+      setStatus({ kind: "err", msg: (e as Error).message });
+    } finally {
+      setIsPending(false);
+    }
   }
 
   function invalidate() {
@@ -159,12 +159,11 @@ export function BorrowPanel({ market }: { market: LendMarket }) {
             <HfRow hf={projectedHf} show={borrowRaw > 0n && collateralRaw > 0n} />
           </dl>
 
-          {attesterOffline && (
+          {staleNav && (
             <div className="brw-note">
-              The attestation enclave is spun down between sessions to save cost, so live signing is paused.
-              The market, valuation, and on-chain proof are fully live — bringing the enclave back re-enables
-              one-click borrow.
-              <span className="brw-note__code">set FLOE_ENCLAVE_URL (server) to the enclave endpoint</span>
+              This vault's attested NAV floor is stale (the NAV heartbeat is catching up), so borrowing is
+              paused — the contract refuses to lend against a stale valuation. Withdrawals still pay the floor,
+              and borrow re-enables automatically within one heartbeat once the floor is fresh again.
             </div>
           )}
 
@@ -174,7 +173,7 @@ export function BorrowPanel({ market }: { market: LendMarket }) {
             <button className="k-btn k-btn--primary brw-cta" disabled={!canBorrow}
               data-disabled={!canBorrow ? "1" : undefined} onClick={doBorrow}>
               {busy ? "Confirming…"
-                : attesterOffline ? "Attester offline"
+                : staleNav ? "Vault NAV stale"
                 : noCollateral ? "Insufficient collateral"
                 : overLiquidity ? "Exceeds pool liquidity"
                 : overLtv ? "Exceeds max LTV"

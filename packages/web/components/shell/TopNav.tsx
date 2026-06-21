@@ -1,9 +1,9 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit";
 import { Droplets, BookOpen, Send } from "lucide-react";
 import { Brand } from "./Brand";
+import { AuthButton } from "@/components/auth/AuthButton";
 import { NAV, NAV_OPERATE } from "./nav";
 
 const SUI_FAUCET = "https://faucet.sui.io/";
@@ -11,7 +11,6 @@ const TELEGRAM = "https://t.me/+DQEQCqMcq5phNWE0";
 
 export function TopNav() {
   const pathname = usePathname();
-  const account = useCurrentAccount();
   const items = [...NAV, ...NAV_OPERATE];
 
   return (
@@ -44,9 +43,7 @@ export function TopNav() {
           <span className="floe-net">
             <span className="floe-net__dot" /> Testnet
           </span>
-          <span className="floe-connect" data-connected={account ? "true" : "false"}>
-            <ConnectButton connectText="Connect wallet" />
-          </span>
+          <AuthButton />
         </div>
       </div>
     </header>

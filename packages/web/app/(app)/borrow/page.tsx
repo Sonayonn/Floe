@@ -9,13 +9,12 @@ import { fmt6, fmtMoney, shortAddr } from "@/lib/format";
 import { suiObject } from "@/lib/explorer";
 import { FLOE_ADDRESSES, assetFor } from "@floe/sdk/browser";
 
-const LEND = FLOE_ADDRESSES.testnet.lend;
 const NAV = FLOE_ADDRESSES.testnet.nav;
 
 const STEPS = [
   { n: "01", Icon: Cpu, t: "Compute", d: "The vault's NAV lower bound and share supply are computed inside the AWS Nitro enclave — the same root of trust that secures every Floe figure." },
-  { n: "02", Icon: PenLine, t: "Sign", d: "The enclave signs a typed CollateralPayload (intent 3) over (vault, floor, supply, timestamp) — a valuation that can never be replayed as a NAV or vol number." },
-  { n: "03", Icon: ShieldCheck, t: "Verify", d: "lock_and_borrow self-verifies the ed25519 signature against the pool's registered attester, checks freshness and the vault binding, then derives the collateral value on-chain." },
+  { n: "02", Icon: PenLine, t: "Attest", d: "The enclave signs that floor onto the vault itself, where the NAV heartbeat keeps it fresh — so the collateral basis lives on-chain, already proven, before anyone borrows." },
+  { n: "03", Icon: ShieldCheck, t: "Verify", d: "lock_and_borrow_from_vault reads the attested floor straight off the vault, asserts it's fresh (is_price_fresh), then derives the collateral value on-chain — no oracle, no per-borrow signature to relay." },
   { n: "04", Icon: Landmark, t: "Borrow", d: "Only then is the loan issued — against a value the borrower could not forge, inflate, or stale. No price oracle to manipulate. No trust assumption to exploit." },
 ];
 
@@ -103,7 +102,7 @@ export default function BorrowPage() {
                 <BasisRow k="Share supply" v={fmt6(m.vault.shareSupply)} />
                 <BasisRow k="% certain" v={`${m.vault.pctCertain.toFixed(1)}%`} />
                 <BasisRow k="Verified against" v={`Enclave<FLOE_NAV> ${shortAddr(NAV.enclave)}`} href={suiObject(NAV.enclave)} />
-                <BasisRow k="Intent" v={`#${LEND.collateralIntent} · CollateralPayload`} />
+                <BasisRow k="Verification" v="On-chain vault read · is_price_fresh" />
               </div>
             </section>
 

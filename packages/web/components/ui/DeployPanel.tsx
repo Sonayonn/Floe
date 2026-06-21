@@ -1,10 +1,11 @@
 "use client";
 import { useState } from "react";
-import { useCurrentAccount, useSignAndExecuteTransaction } from "@mysten/dapp-kit";
+import { useCurrentAccount } from "@mysten/dapp-kit";
 import { useQueryClient } from "@tanstack/react-query";
 import { buildDeployPlpTx, assetFor, type VaultState } from "@floe/sdk/browser";
 import { Sparkles } from "lucide-react";
 import { useExecCap } from "@/lib/hooks/useExecCap";
+import { useFloeExecute } from "@/lib/hooks/useFloeExecute";
 import { fmt6 } from "@/lib/format";
 
 /**
@@ -17,7 +18,8 @@ import { fmt6 } from "@/lib/format";
 export function DeployPanel({ vault, qType, sType }: { vault: VaultState; qType: string; sType: string }) {
   const account = useCurrentAccount();
   const qc = useQueryClient();
-  const { mutate: signAndExecute, isPending } = useSignAndExecuteTransaction();
+  const execute = useFloeExecute();
+  const [isPending, setIsPending] = useState(false);
   const { data: execCapId } = useExecCap(vault.vaultId, account?.address);
 
   const meta = assetFor(qType);
@@ -35,21 +37,24 @@ export function DeployPanel({ vault, qType, sType }: { vault: VaultState; qType:
   const tooMuch = amountRaw > vault.idle;
   const canSubmit = amountRaw > 0n && !tooMuch && !isPending;
 
-  function submit() {
+  async function submit() {
     if (!account || !execCapId) return;
     setStatus({ kind: "idle" });
+    setIsPending(true);
     const tx = buildDeployPlpTx({
       vaultId: vault.vaultId, qType, sType, sender: account.address, execCapId, amount: amountRaw,
     });
-    signAndExecute({ transaction: tx }, {
-      onSuccess: (res) => {
-        setStatus({ kind: "ok", digest: res.digest });
-        setAmount("");
-        qc.invalidateQueries({ queryKey: ["vault", vault.vaultId] });
-        qc.invalidateQueries({ queryKey: ["vaults"] });
-      },
-      onError: (e) => setStatus({ kind: "err", msg: (e as Error).message }),
-    });
+    try {
+      const res = await execute(tx);
+      setStatus({ kind: "ok", digest: res.digest });
+      setAmount("");
+      qc.invalidateQueries({ queryKey: ["vault", vault.vaultId] });
+      qc.invalidateQueries({ queryKey: ["vaults"] });
+    } catch (e) {
+      setStatus({ kind: "err", msg: (e as Error).message });
+    } finally {
+      setIsPending(false);
+    }
   }
 
   return (

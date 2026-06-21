@@ -1,10 +1,11 @@
 "use client";
 import { useState } from "react";
-import { useCurrentAccount, useSignAndExecuteTransaction, useSuiClient } from "@mysten/dapp-kit";
+import { useCurrentAccount, useSuiClient } from "@mysten/dapp-kit";
 import { useQueryClient } from "@tanstack/react-query";
 import { buildDepositTx, buildWithdrawTx, assetFor, type VaultState } from "@floe/sdk/browser";
 import { Droplets } from "lucide-react";
 import { useCoins } from "@/lib/hooks/useCoins";
+import { useFloeExecute } from "@/lib/hooks/useFloeExecute";
 import { fmt6 } from "@/lib/format";
 
 type Mode = "deposit" | "withdraw";
@@ -13,10 +14,11 @@ export function DepositPanel({ vault, qType, sType }: { vault: VaultState; qType
   const account = useCurrentAccount();
   const client = useSuiClient();
   const qc = useQueryClient();
-  const { mutate: signAndExecute, isPending } = useSignAndExecuteTransaction();
+  const execute = useFloeExecute();
 
   const [mode, setMode] = useState<Mode>("deposit");
   const [amount, setAmount] = useState("");
+  const [isPending, setIsPending] = useState(false);
   const [status, setStatus] = useState<{ kind: "idle" | "ok" | "err"; msg?: string; digest?: string }>({ kind: "idle" });
 
   const qMeta = assetFor(qType);
@@ -36,22 +38,25 @@ export function DepositPanel({ vault, qType, sType }: { vault: VaultState; qType
   const frozen = isDeposit && vault.depositsFrozen;
   const canSubmit = !!account && amountRaw > 0n && !insufficient && !frozen && !isPending && coins.length > 0;
 
-  function submit() {
+  async function submit() {
     if (!account || coins.length === 0) return;
     setStatus({ kind: "idle" });
+    setIsPending(true);
     const tx = isDeposit
       ? buildDepositTx({ vaultId: vault.vaultId, qType, sType, sender: account.address, paymentCoinId: coins[0].coinObjectId, amount: amountRaw })
       : buildWithdrawTx({ vaultId: vault.vaultId, qType, sType, sender: account.address, shareCoinId: coins[0].coinObjectId, shareAmount: amountRaw });
 
-    signAndExecute({ transaction: tx }, {
-      onSuccess: (res) => {
-        setStatus({ kind: "ok", digest: res.digest });
-        setAmount("");
-        qc.invalidateQueries({ queryKey: ["vault", vault.vaultId] });
-        qc.invalidateQueries({ queryKey: ["vaults"] });
-      },
-      onError: (e) => setStatus({ kind: "err", msg: (e as Error).message }),
-    });
+    try {
+      const res = await execute(tx);
+      setStatus({ kind: "ok", digest: res.digest });
+      setAmount("");
+      qc.invalidateQueries({ queryKey: ["vault", vault.vaultId] });
+      qc.invalidateQueries({ queryKey: ["vaults"] });
+    } catch (e) {
+      setStatus({ kind: "err", msg: (e as Error).message });
+    } finally {
+      setIsPending(false);
+    }
   }
 
   return (

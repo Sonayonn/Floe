@@ -15,6 +15,7 @@ import { AllocationBar } from "@/components/ui/AllocationBar";
 import { LiquidityEarnings } from "@/components/ui/LiquidityEarnings";
 import { YieldComposition } from "@/components/ui/YieldComposition";
 import { AttestationFeed } from "@/components/ui/AttestationFeed";
+import { ActivityFeed } from "@/components/ui/ActivityFeed";
 import { DepositPanel } from "@/components/ui/DepositPanel";
 import { DeployPanel } from "@/components/ui/DeployPanel";
 import { deriveAllocations, vaultVenues } from "@/lib/allocations";
@@ -150,7 +151,12 @@ export default function VaultDetail({ params }: { params: Promise<{ vaultId: str
         <div className="vd__venues">
           {venues.map((vn) => <VenueChip key={vn.key} venueKey={vn.key} name={vn.name} status={vn.status} />)}
         </div>
-        <Tabs tabs={[{ label: "Overview", content: overview }, { label: "Verify", content: verify }, { label: "Vault Info", content: info }]} />
+        <Tabs tabs={[
+          { label: "Overview", content: overview },
+          { label: "Verify", content: verify },
+          { label: "Activity", content: <ActivityFeed vaultId={vaultId} /> },
+          { label: "Vault Info", content: info },
+        ]} />
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 14, position: "sticky", top: 84, alignSelf: "start" }}>
         <DepositPanel vault={v} qType={Q} sType={S} />

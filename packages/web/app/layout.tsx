@@ -4,6 +4,7 @@ import "../styles/tokens.css";
 import "../styles/base.css";
 import "../styles/primitives.css";
 import "../styles/shell.css";
+import "../styles/auth.css";
 import "../styles/screens.css";
 import "../styles/landing.css";
 import "../styles/docs.css";

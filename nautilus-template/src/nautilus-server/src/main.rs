@@ -3,7 +3,6 @@
 
 use anyhow::Result;
 use axum::{extract::State, routing::get, routing::post, Router};
-#[cfg(not(feature = "floe-nav"))]
 use fastcrypto::{ed25519::Ed25519KeyPair, traits::KeyPair};
 use nautilus_server::app::process_data;
 #[cfg(feature = "floe-nav")]
@@ -23,9 +22,16 @@ use tracing::info;
 #[tokio::main]
 async fn main() -> Result<()> {
     // floe-nav: recover a STABLE signing key sealed under KMS (same pubkey across reboots → no on-chain
-    // churn). Other builds keep the ephemeral-per-boot key. See src/sealed_key.rs.
+    // churn) ONLY when KMS is configured (FLOE_KMS_KEY_ID set). Without KMS — or to sidestep it for a
+    // manually-attested demo — fall back to an EPHEMERAL per-boot key: attest-all re-registers it on
+    // every vault each boot, so the chain trusts it with no sealing. Other builds always go ephemeral.
     #[cfg(feature = "floe-nav")]
-    let (eph_kp, sealed_ciphertext) = nautilus_server::sealed_key::load_or_init().await?;
+    let (eph_kp, sealed_ciphertext) = if std::env::var("FLOE_KMS_KEY_ID").is_ok() {
+        nautilus_server::sealed_key::load_or_init().await?
+    } else {
+        tracing::warn!("floe-nav: FLOE_KMS_KEY_ID unset → EPHEMERAL signing key (re-run attest-all after each boot)");
+        (Ed25519KeyPair::generate(&mut rand::thread_rng()), None)
+    };
     #[cfg(not(feature = "floe-nav"))]
     let eph_kp = Ed25519KeyPair::generate(&mut rand::thread_rng());
     #[cfg(not(feature = "floe-nav"))]

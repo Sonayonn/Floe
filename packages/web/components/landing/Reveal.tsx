@@ -17,9 +17,12 @@ export function Reveal({
     obs.observe(el);
     return () => obs.disconnect();
   }, []);
+  // Dynamic-tag components type their children/props as `never` under `ElementType`; render through
+  // an `any`-typed alias so the spread props + children check cleanly.
+  const Box: any = Tag;
   return (
-    <Tag ref={ref as any} className={`lp-reveal ${inView ? "is-in" : ""} ${className}`} style={{ transitionDelay: `${delay}ms` }} {...rest}>
+    <Box ref={ref as any} className={`lp-reveal ${inView ? "is-in" : ""} ${className}`} style={{ transitionDelay: `${delay}ms` }} {...rest}>
       {children}
-    </Tag>
+    </Box>
   );
 }
