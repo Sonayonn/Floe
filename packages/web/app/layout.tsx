@@ -30,13 +30,7 @@ export const metadata: Metadata = {
   applicationName: "Floe",
   keywords: ["Sui", "DeFi", "vaults", "verifiable NAV", "Nautilus", "DeepBook", "volatility", "asset management"],
   authors: [{ name: "Floe" }],
-  icons: {
-    icon: [
-      { url: "/brand/floe-favicon.svg", type: "image/svg+xml" },
-      { url: "/favicon.ico", sizes: "any" },
-    ],
-    apple: "/brand/floe-mark-color.svg",
-  },
+  // Icons come from the app/ file conventions: favicon.ico, icon.svg, apple-icon.png.
   openGraph: {
     type: "website",
     siteName: "Floe",
