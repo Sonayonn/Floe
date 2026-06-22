@@ -50,3 +50,6 @@ seed-*-result.json
 # Nautilus build artifacts (keep source, ignore builds)
 nautilus-template/src/nautilus-server/target/
 nautilus-template/out/
+
+# Brand assets (exported locally, not versioned)
+brand-export/

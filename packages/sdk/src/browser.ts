@@ -9,7 +9,9 @@ export { buildDepositTx, buildWithdrawTx, buildDeployPlpTx, buildDeployCetusTx, 
 // Floe Index — on-chain implied volatility. Browser-safe reads (devInspect / object reads, no signer).
 export {
   volNow, currentVol, attestedVol, resolveLiveOracle, volAttester, bpsToPercent,
-  type VolSnapshot, type AttestedVolReading,
+  // SVI surface — raw smile reconstruction across the live term structure.
+  readOracleSVI, resolveLiveOracles, sviTotalVariance, sviIvBps, buildVolSurface,
+  type VolSnapshot, type AttestedVolReading, type SVISlice, type VolSurface,
 } from './vol/index.ts';
 
 // Forward APY projection — comparable, inspectable estimate for every vault (pure; no network).

@@ -23,10 +23,7 @@ import { isHidden } from "@/lib/hidden";
 import { isOfficial } from "@/lib/official";
 import { fmt6, shortAddr } from "@/lib/format";
 import { useVol } from "@/lib/hooks/useVol";
-import { FLOE_ADDRESSES, estimateApy, apyPct } from "@floe/sdk/browser";
-
-const Q = FLOE_ADDRESSES.testnet.refVaultQType;
-const S = FLOE_ADDRESSES.testnet.refVaultSType;
+import { estimateApy, apyPct } from "@floe/sdk/browser";
 
 export default function VaultDetail({ params }: { params: Promise<{ vaultId: string }> }) {
   const { vaultId } = use(params);
@@ -159,8 +156,8 @@ export default function VaultDetail({ params }: { params: Promise<{ vaultId: str
         ]} />
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 14, position: "sticky", top: 84, alignSelf: "start" }}>
-        <DepositPanel vault={v} qType={Q} sType={S} />
-        <DeployPanel vault={v} qType={Q} sType={S} />
+        <DepositPanel vault={v} qType={v.qType} sType={v.sType} />
+        <DeployPanel vault={v} qType={v.qType} sType={v.sType} />
       </div>
     </div>
   );

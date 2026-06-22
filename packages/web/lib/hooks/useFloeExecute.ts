@@ -8,8 +8,12 @@ import {
 } from "@mysten/dapp-kit";
 import { isEnokiWallet } from "@mysten/enoki";
 import { ENOKI_ENABLED } from "@/lib/enoki";
+import { useToast } from "@/components/ui/Toast";
 
 export type FloeExecResult = { digest: string };
+
+/** Optional label for the toast, e.g. "Deposit", "Borrow". Defaults to "Transaction". */
+export interface FloeExecOpts { label?: string }
 
 // One-shot health check of the sponsorship backend (needs the server-only private key), cached for
 // the session so we don't probe on every transaction.
@@ -33,10 +37,29 @@ export function useFloeExecute() {
   const client = useSuiClient();
   const { mutateAsync: signTransaction } = useSignTransaction();
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
+  const toast = useToast();
 
   return useCallback(
-    async (tx: Transaction): Promise<FloeExecResult> => {
+    async (tx: Transaction, opts: FloeExecOpts = {}): Promise<FloeExecResult> => {
       if (!account) throw new Error("No account connected");
+      const label = opts.label ?? "Transaction";
+      const toastId = toast.push({ kind: "pending", title: `${label} submitted`, message: "Awaiting confirmation…" });
+      const ok = (digest: string): FloeExecResult => {
+        toast.update(toastId, { kind: "success", title: `${label} confirmed`, message: undefined, digest });
+        return { digest };
+      };
+      const fail = (e: unknown): never => {
+        const raw = (e as Error)?.message ?? "Transaction failed";
+        toast.update(toastId, { kind: "error", title: `${label} failed`, message: humanizeTxError(raw) });
+        throw e;
+      };
+      try {
+        return await run();
+      } catch (e) {
+        return fail(e);
+      }
+
+      async function run(): Promise<FloeExecResult> {
       const isZkLogin = currentWallet ? isEnokiWallet(currentWallet) : false;
       const canSponsor = ENOKI_ENABLED && (await sponsorshipAvailable());
 
@@ -68,7 +91,7 @@ export function useFloeExecute() {
           if (!exec.ok) throw new Error((await exec.json()).error ?? "execute failed");
           const out = await exec.json();
           await client.waitForTransaction({ digest: out.digest });
-          return { digest: out.digest };
+          return ok(out.digest);
         } catch (e) {
           // zkLogin users can't pay their own gas — surface the failure rather than dead-end.
           if (isZkLogin) throw e;
@@ -77,8 +100,20 @@ export function useFloeExecute() {
       }
 
       const res = await signAndExecute({ transaction: tx });
-      return { digest: res.digest };
+      return ok(res.digest);
+      }
     },
-    [account, currentWallet, client, signTransaction, signAndExecute],
+    [account, currentWallet, client, signTransaction, signAndExecute, toast],
   );
+}
+
+/** Turn common on-chain / wallet errors into a one-line human message for the toast. */
+function humanizeTxError(raw: string): string {
+  if (/EPriceStale|, 5\)/.test(raw)) return "The vault's attested price is refreshing — deposits pause until it's fresh.";
+  if (/EDepositUnsafe|, 30\)/.test(raw)) return "NAV is being re-verified — deposits are paused as a safety measure.";
+  if (/EInsufficientShares|, 3\)/.test(raw)) return "Not enough shares for that withdrawal.";
+  if (/EDepositsFrozen|, 20\)/.test(raw)) return "Deposits are paused for this vault.";
+  if (/Rejected|User rejected|cancell?ed/i.test(raw)) return "Cancelled in your wallet.";
+  if (/budget|InsufficientGas|gas/i.test(raw)) return "Not enough gas — get testnet SUI from the faucet, or sign in with Google for sponsored gas.";
+  return raw.length > 140 ? raw.slice(0, 140) + "…" : raw;
 }

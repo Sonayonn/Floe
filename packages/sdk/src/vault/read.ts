@@ -3,6 +3,8 @@ import { INITIAL_SHARE_PRICE, PLP_PRICE_SCALE } from '../constants.ts';
 
 export interface VaultState {
   vaultId: string;
+  qType: string;             // quote/deposit coin type, parsed off the on-chain Vault<Q,S> type
+  sType: string;             // share coin type — DIFFERS per vault, so never hardcode it
   curator: string;
   owner: string;
   paused: boolean;
@@ -40,10 +42,29 @@ function f(obj: any): any {
   return obj?.data?.content?.fields ?? {};
 }
 
+/** Parse the two type args off a `…::floe::Vault<Q, S>` type string. Splits on the top-level
+ *  comma so nested generics in either arg are handled. Returns ['',''] if the type is malformed. */
+function parseVaultTypeArgs(type: string | undefined): [string, string] {
+  if (!type) return ['', ''];
+  const lt = type.indexOf('<');
+  const gt = type.lastIndexOf('>');
+  if (lt < 0 || gt <= lt) return ['', ''];
+  const inner = type.slice(lt + 1, gt);
+  let depth = 0;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (ch === '<') depth++;
+    else if (ch === '>') depth--;
+    else if (ch === ',' && depth === 0) return [inner.slice(0, i).trim(), inner.slice(i + 1).trim()];
+  }
+  return ['', ''];
+}
+
 /** Read full vault state + computed NAV/share price (client-side, mirrors the contract). */
 export async function getVaultState(floe: FloeClient, vaultId: string): Promise<VaultState> {
-  const o = await floe.sui.getObject({ id: vaultId, options: { showContent: true } });
+  const o = await floe.sui.getObject({ id: vaultId, options: { showContent: true, showType: true } });
   const v = f(o);
+  const [qType, sType] = parseVaultTypeArgs(o.data?.type ?? undefined);
   const fees = v.fees?.fields ?? {};
   const policy = v.policy?.fields ?? {};
 
@@ -122,6 +143,7 @@ export async function getVaultState(floe: FloeClient, vaultId: string): Promise<
 
   return {
     vaultId,
+    qType, sType,
     curator: v.curator,
     owner: v.owner,
     paused: v.paused,

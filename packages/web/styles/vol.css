@@ -1,0 +1,172 @@
+/* ============================================================================
+   Surface Studio (/vol) — the live SVI implied-volatility surface.
+   Graphite base + teal accent; vol heat ramps teal → amber → coral.
+   ========================================================================== */
+
+.vol { display: flex; flex-direction: column; gap: var(--space-7); }
+
+.vol .floe-panel__title { display: inline-flex; align-items: center; gap: 8px; }
+.vol .floe-panel__title svg { color: var(--accent); }
+
+.vol-kpi__sub {
+  font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.06em;
+  color: var(--text-faint); text-transform: uppercase; margin-top: 3px;
+}
+.kpi { display: flex; flex-direction: column; gap: 4px; }
+
+.vol-state {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-8) var(--space-6); color: var(--text-muted); font-size: var(--text-sm);
+}
+
+/* ── Surface hero ─────────────────────────────────────────────────────────── */
+.vol-hero__grid {
+  display: grid; grid-template-columns: 1fr 280px; gap: 0;
+}
+.vol-hero__canvas { position: relative; padding: var(--space-4); border-right: 1px solid var(--hairline); }
+
+.vol-surface3d {
+  position: relative; width: 100%; height: 460px; border-radius: var(--radius);
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(52, 230, 214, 0.06), transparent 60%),
+    linear-gradient(180deg, #0a0d11, #070a0d);
+  border: 1px solid var(--border);
+}
+.vol-surface3d canvas { display: block; }
+
+.vol-axis {
+  position: absolute; font-family: var(--font-mono); font-size: 0.64rem;
+  letter-spacing: 0.08em; color: var(--text-subtle); pointer-events: none; text-transform: uppercase;
+}
+.vol-axis--x { bottom: 12px; right: 16px; }
+.vol-axis--z { bottom: 12px; left: 16px; }
+.vol-axis--y { top: 14px; left: 16px; }
+.vol-hint {
+  position: absolute; top: 14px; right: 16px; font-family: var(--font-mono); font-size: 0.62rem;
+  color: var(--text-faint); letter-spacing: 0.05em; pointer-events: none;
+}
+
+.vol-legend {
+  display: flex; align-items: center; gap: 8px; margin-top: var(--space-3);
+  font-family: var(--font-mono); font-size: 0.66rem; color: var(--text-subtle);
+}
+.vol-legend__label { letter-spacing: 0.1em; text-transform: uppercase; }
+.vol-legend__bar {
+  flex: 1; height: 7px; border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, #34e6d6, #ecb45a 52%, #f2766e);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.vol-legend__lo { color: var(--accent); }
+.vol-legend__hi { color: var(--coral, #f2766e); }
+
+/* ── Side rail ────────────────────────────────────────────────────────────── */
+.vol-hero__side { padding: var(--space-5) var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); }
+.vol-side__h {
+  font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--text-subtle);
+}
+.vol-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.vol-chip {
+  font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted);
+  padding: 5px 9px; border-radius: var(--radius-sm); cursor: pointer;
+  background: var(--bg-deep); border: 1px solid var(--border); transition: all 0.16s ease;
+}
+.vol-chip:hover { color: var(--text); border-color: var(--border-strong); }
+.vol-chip.is-active {
+  color: var(--accent-ink); background: var(--accent); border-color: var(--accent);
+  font-weight: 600;
+}
+
+.vol-readout {
+  display: flex; flex-direction: column; gap: 2px; padding: var(--space-3) 0;
+  border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline);
+}
+.vol-readout__row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; }
+.vol-readout__k { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.05em; color: var(--text-subtle); text-transform: uppercase; }
+.vol-readout__v { font-family: var(--font-mono); font-size: 0.84rem; color: var(--text); }
+.vol-readout__v.is-accent { color: var(--accent); }
+.vol-readout__v--link { color: var(--text-muted); display: inline-flex; align-items: center; gap: 4px; text-decoration: none; }
+.vol-readout__v--link:hover { color: var(--accent); }
+
+.vol-side__cta {
+  display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+  font-family: var(--font-mono); font-size: 0.74rem; color: var(--accent); text-decoration: none;
+}
+.vol-side__cta:hover { text-decoration: underline; }
+
+/* ── Smile + term-structure charts ───────────────────────────────────────── */
+.vol-2col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+.vol-chart-wrap { padding: var(--space-5) var(--space-6); }
+.vol-chart { width: 100%; height: auto; display: block; }
+.vol-chart--empty {
+  display: flex; align-items: center; justify-content: center; min-height: 200px;
+  color: var(--text-subtle); font-family: var(--font-mono); font-size: var(--text-sm);
+}
+.vol-grid { stroke: var(--hairline); stroke-width: 1; }
+.vol-tick { fill: var(--text-faint); font-family: var(--font-mono); font-size: 10px; }
+.vol-tick--y { text-anchor: end; }
+.vol-tick--x { text-anchor: middle; }
+.vol-curve { fill: none; stroke: var(--accent); stroke-width: 2.2; stroke-linejoin: round; }
+.vol-curve--term { stroke: var(--accent-deep); }
+.vol-atm-line { stroke: var(--accent-line); stroke-width: 1; stroke-dasharray: 3 3; }
+.vol-atm-dot { fill: var(--accent); stroke: var(--bg); stroke-width: 2; }
+.vol-atm-label { fill: var(--accent); font-family: var(--font-mono); font-size: 11px; }
+.vol-term-dot { fill: var(--text-subtle); transition: r 0.15s ease; }
+.vol-term-dot.is-sel { fill: var(--accent); stroke: var(--bg); stroke-width: 2; }
+
+/* ── SVI parameter inspector ─────────────────────────────────────────────── */
+.vol-svi__grid {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px;
+  background: var(--hairline); border-bottom: 1px solid var(--hairline);
+}
+.vol-param {
+  display: flex; flex-direction: column; gap: 4px; align-items: center;
+  padding: var(--space-5) var(--space-3); background: var(--surface);
+}
+.vol-param__sym { font-family: var(--font-display); font-size: 1.5rem; color: var(--accent); line-height: 1; }
+.vol-param__name { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-subtle); }
+.vol-param__val { font-family: var(--font-mono); font-size: 0.82rem; color: var(--text); margin-top: 2px; }
+.vol-formula {
+  display: flex; flex-direction: column; gap: 6px; padding: var(--space-5) var(--space-6);
+}
+.vol-formula__eq { font-family: var(--font-mono); font-size: 0.84rem; color: var(--text); letter-spacing: 0.01em; }
+.vol-formula__eq--dim { color: var(--text-muted); font-size: 0.76rem; }
+
+/* ── How-it-works steps ──────────────────────────────────────────────────── */
+.vol-section-head { margin-bottom: var(--space-5); }
+.vol-h2 { font-size: var(--text-2xl); letter-spacing: -0.025em; }
+.vol-section-head p { color: var(--text-muted); margin-top: 8px; max-width: 70ch; }
+.vol-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); }
+.vol-step {
+  display: flex; flex-direction: column; gap: 8px; padding: var(--space-5);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  position: relative; overflow: hidden;
+}
+.vol-step__n { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-faint); letter-spacing: 0.1em; }
+.vol-step__icon { color: var(--accent); }
+.vol-step__t { font-family: var(--font-display); font-weight: 600; font-size: var(--text-md); }
+.vol-step__d { font-size: var(--text-sm); color: var(--text-muted); line-height: 1.5; }
+
+/* ── Provenance footer ───────────────────────────────────────────────────── */
+.vol-prov {
+  display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-4) var(--space-5);
+  background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: var(--radius);
+  color: var(--text-muted); font-size: var(--text-sm); line-height: 1.55;
+}
+.vol-prov svg { color: var(--accent); flex-shrink: 0; margin-top: 2px; }
+.vol-prov a { color: var(--accent); text-decoration: none; display: inline-flex; align-items: center; gap: 3px; }
+.vol-prov a:hover { text-decoration: underline; }
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .vol-hero__grid { grid-template-columns: 1fr; }
+  .vol-hero__canvas { border-right: none; border-bottom: 1px solid var(--hairline); }
+  .vol-2col { grid-template-columns: 1fr; }
+  .vol-steps { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+  .vol-svi__grid { grid-template-columns: repeat(2, 1fr); }
+  .vol-steps { grid-template-columns: 1fr; }
+  .vol-surface3d { height: 360px; }
+}

@@ -201,3 +201,153 @@ export async function attestedVol(floe: FloeClient): Promise<AttestedVolReading>
     fresh: (rv[4][0] as number[])[0] === 1,
   };
 }
+
+// ─── SVI volatility surface (raw smile reconstruction) ────────────────────────
+// DeepBook Predict publishes one OracleSVI per expiry (intraday + daily + weekly series),
+// each exposing the raw SVI params (a, b, sigma, m, rho — scale 1e9). Those five numbers
+// define the WHOLE implied-vol smile for that expiry, not just ATM. Reading every live
+// oracle and reconstructing each smile across log-moneyness gives a real, live, on-chain
+// SVI surface (moneyness × tenor × IV). Pure math below mirrors floe_vol_index::compute_iv_bps.
+
+const MS_PER_YEAR_F = 31_557_600_000;
+const SVI_SCALE = 1e9;
+
+export interface SVISlice {
+  oracleId: string;
+  expiryMs: number;
+  /** Time-to-expiry in ms at read time. */
+  tteMs: number;
+  /** Underlying spot price (real units). */
+  spot: number;
+  /** Forward price (real units). */
+  forward: number;
+  /** Raw SVI params in real (un-scaled) units — Gatheral raw parameterization. */
+  a: number; b: number; rho: number; m: number; sigma: number;
+  /** ATM (k=0) implied vol, basis points — matches the on-chain compute. */
+  atmIvBps: number;
+}
+
+/** Parse a deepbook_predict i64 {is_negative, magnitude} (scale 1e9) into a signed float. */
+const sviI64 = (x: any): number => {
+  const ff = x?.fields ?? x ?? {};
+  const mag = Number(ff.magnitude ?? 0);
+  const neg = (ff.is_negative ?? false) === true;
+  return (neg ? -mag : mag) / SVI_SCALE;
+};
+
+/** SVI total implied variance at log-moneyness k (Gatheral raw): w(k) = a + b·(ρ·(k−m) + √((k−m)²+σ²)). */
+export function sviTotalVariance(
+  s: Pick<SVISlice, 'a' | 'b' | 'rho' | 'm' | 'sigma'>, k: number,
+): number {
+  const km = k - s.m;
+  return s.a + s.b * (s.rho * km + Math.sqrt(km * km + s.sigma * s.sigma));
+}
+
+/** Implied vol (basis points) at log-moneyness k for this slice's tenor: iv = √(w(k)/T). */
+export function sviIvBps(s: SVISlice, k: number): number {
+  const T = s.tteMs / MS_PER_YEAR_F;
+  if (T <= 0) return 0;
+  const w = Math.max(sviTotalVariance(s, k), 0);
+  return Math.sqrt(w / T) * 1e4;
+}
+
+/** Build an SVISlice from a raw OracleSVI object's `content.fields`. Returns null if not an SVI oracle. */
+function sliceFromFields(f: any, fallbackId?: string): SVISlice | null {
+  if (!f?.svi) return null;
+  const svi = f.svi.fields ?? f.svi;
+  const prices = f.prices?.fields ?? f.prices ?? {};
+  const expiryMs = Number(f.expiry ?? 0);
+  const s: SVISlice = {
+    oracleId: (f.id?.id as string) ?? fallbackId ?? '',
+    expiryMs,
+    tteMs: expiryMs - Date.now(),
+    spot: Number(prices.spot ?? 0) / SVI_SCALE,
+    forward: Number(prices.forward ?? 0) / SVI_SCALE,
+    a: Number(svi.a ?? 0) / SVI_SCALE,
+    b: Number(svi.b ?? 0) / SVI_SCALE,
+    sigma: Number(svi.sigma ?? 0) / SVI_SCALE,
+    m: sviI64(svi.m),
+    rho: sviI64(svi.rho),
+    atmIvBps: 0,
+  };
+  s.atmIvBps = sviIvBps(s, 0);
+  return s;
+}
+
+/** Read raw SVI params + spot/forward/expiry from one OracleSVI object → an SVISlice. */
+export async function readOracleSVI(floe: FloeClient, oracleId: string): Promise<SVISlice | null> {
+  const o = await floe.sui.getObject({ id: oracleId, options: { showContent: true } });
+  return sliceFromFields((o.data?.content as any)?.fields, oracleId);
+}
+
+/** Resolve ALL live oracles for an underlying (the full term structure) as SVI slices.
+ *  Predict rolls a fresh OracleSVI per expiry (intraday + daily + weekly), so this returns many
+ *  tenors — a real volatility surface. Near-expiry oracles (tte < minTteMs) are dropped because
+ *  iv = √(w/T) blows up as T→0. Sorted ascending by time-to-expiry. */
+export async function resolveLiveOracles(
+  floe: FloeClient,
+  opts: { underlying?: string; minTteMs?: number } = {},
+): Promise<SVISlice[]> {
+  const underlying = opts.underlying ?? 'BTC';
+  const minTteMs = opts.minTteMs ?? 30 * 60 * 1000; // 30 min
+  const a = floe.addresses;
+  const ev = await floe.sui.queryEvents({
+    query: { MoveModule: { package: a.predict.package, module: 'oracle' } },
+    limit: 50, order: 'descending',
+  });
+  const ids = [...new Set(ev.data.map((e) => (e.parsedJson as any)?.oracle_id).filter(Boolean) as string[])];
+  if (ids.length === 0) return [];
+  const objs = await floe.sui.multiGetObjects({ ids, options: { showContent: true } });
+  const slices: SVISlice[] = [];
+  for (const o of objs) {
+    const f = (o.data?.content as any)?.fields;
+    if (!f || f.underlying_asset !== underlying || f.active !== true) continue;
+    const s = sliceFromFields(f);
+    if (s && s.tteMs >= minTteMs) slices.push(s);
+  }
+  return slices.sort((x, y) => x.tteMs - y.tteMs);
+}
+
+export interface VolSurface {
+  /** Shared log-moneyness grid (columns). */
+  ks: number[];
+  /** Tenor rows (ascending tte) — the real oracle slices. */
+  slices: SVISlice[];
+  /** iv[row][col] in PERCENT (e.g. 51.32). */
+  iv: number[][];
+  ivMin: number;
+  ivMax: number;
+  /** Representative spot (front slice). */
+  spot: number;
+  generatedMs: number;
+}
+
+/** Sample every slice's SVI smile across a shared log-moneyness grid → a surface grid (IV in %). */
+export function buildVolSurface(
+  slices: SVISlice[],
+  opts: { kMin?: number; kMax?: number; cols?: number } = {},
+): VolSurface {
+  const kMin = opts.kMin ?? -0.35;
+  const kMax = opts.kMax ?? 0.35;
+  const cols = opts.cols ?? 41;
+  const ks = Array.from({ length: cols }, (_, i) => kMin + (kMax - kMin) * (i / (cols - 1)));
+  const iv: number[][] = [];
+  let ivMin = Infinity;
+  let ivMax = -Infinity;
+  for (const s of slices) {
+    const row = ks.map((k) => {
+      const v = sviIvBps(s, k) / 100; // percent
+      if (v < ivMin) ivMin = v;
+      if (v > ivMax) ivMax = v;
+      return v;
+    });
+    iv.push(row);
+  }
+  return {
+    ks, slices, iv,
+    ivMin: Number.isFinite(ivMin) ? ivMin : 0,
+    ivMax: Number.isFinite(ivMax) ? ivMax : 0,
+    spot: slices[0]?.spot ?? 0,
+    generatedMs: Date.now(),
+  };
+}

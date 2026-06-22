@@ -36,7 +36,16 @@ export function DepositPanel({ vault, qType, sType }: { vault: VaultState; qType
 
   const insufficient = amountRaw > total;
   const frozen = isDeposit && vault.depositsFrozen;
-  const canSubmit = !!account && amountRaw > 0n && !insufficient && !frozen && !isPending && coins.length > 0;
+  // Circuit breaker: the contract refuses deposits when the attested NAV isn't fresh+safe
+  // (floe::deposit aborts EPriceStale / EDepositUnsafe). Guard it in the UI so a stale vault shows
+  // an honest message instead of a cryptic wallet dry-run MoveAbort. Withdrawals stay enabled —
+  // they're paid at the proven floor when attestation is stale.
+  const depositUnsafe = isDeposit && !vault.navSafe;
+  const blockReason =
+    !depositUnsafe ? undefined
+    : vault.navSafetyLabel === "degraded-divergent" ? "NAV under review"
+    : "Deposits paused · price refreshing";
+  const canSubmit = !!account && amountRaw > 0n && !insufficient && !frozen && !depositUnsafe && !isPending && coins.length > 0;
 
   async function submit() {
     if (!account || coins.length === 0) return;
@@ -47,7 +56,7 @@ export function DepositPanel({ vault, qType, sType }: { vault: VaultState; qType
       : buildWithdrawTx({ vaultId: vault.vaultId, qType, sType, sender: account.address, shareCoinId: coins[0].coinObjectId, shareAmount: amountRaw });
 
     try {
-      const res = await execute(tx);
+      const res = await execute(tx, { label: isDeposit ? "Deposit" : "Withdraw" });
       setStatus({ kind: "ok", digest: res.digest });
       setAmount("");
       qc.invalidateQueries({ queryKey: ["vault", vault.vaultId] });
@@ -91,8 +100,16 @@ export function DepositPanel({ vault, qType, sType }: { vault: VaultState; qType
         <div className="k-btn k-btn--primary" style={{ justifyContent: "center", opacity: 0.6, cursor: "default" }}>Connect wallet to {mode}</div>
       ) : (
         <button className="k-btn k-btn--primary" style={{ width: "100%", justifyContent: "center", opacity: canSubmit ? 1 : 0.5, cursor: canSubmit ? "pointer" : "not-allowed" }} disabled={!canSubmit} onClick={submit}>
-          {isPending ? "Confirming…" : frozen ? "Deposits paused" : insufficient ? "Insufficient balance" : isDeposit ? "Deposit" : "Withdraw"}
+          {isPending ? "Confirming…" : frozen ? "Deposits paused" : blockReason ? blockReason : insufficient ? "Insufficient balance" : isDeposit ? "Deposit" : "Withdraw"}
         </button>
+      )}
+
+      {depositUnsafe && (
+        <p style={{ fontSize: 11.5, color: "var(--stale)", lineHeight: 1.5, background: "var(--stale-soft)", border: "1px solid var(--stale-line)", borderRadius: "var(--radius-sm)", padding: "8px 10px" }}>
+          {vault.navSafetyLabel === "degraded-divergent"
+            ? "This vault's attested NAV is being re-checked against its on-chain floor — new deposits are paused as a safety measure. This is by design; your existing position and withdrawals are unaffected."
+            : "This vault holds a live venue position and its attested price is refreshing (the attestation keeper is between runs). New deposits pause until it's fresh — by design, so shares only ever mint against a proven NAV. Withdrawals at the proven floor are unaffected. Idle-reserve vaults accept deposits anytime."}
+        </p>
       )}
 
       {isDeposit && account && (total === 0n || insufficient) && (

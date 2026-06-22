@@ -267,10 +267,16 @@ const vault = await FloeVault.deploy(floe, {
                   })}
                 </div>
                 <div className="dep-note"><Info size={14} />
-                  The share-coin publish runs through the Sui CLI, so deployment completes via the curator pipeline below.
-                  Run it with your signer, or one-click wallet deploy activates with the hosted deploy service (coming next).
+                  The per-vault SHARE coin is published through the Sui CLI (a server step), so the pipeline runs with a
+                  signer rather than in the browser. Run the two commands below: the first deploys your vault with the exact
+                  config above; the second <strong>activates it to yield</strong> so it earns from day one instead of sitting idle.
                 </div>
-                <CodeBlock lang="bash" filename="terminal" code={`SUI_PRIVATE_KEY=… pnpm exec tsx examples/deploy-vault.ts`} />
+                <CodeBlock lang="bash" filename="1 · deploy your vault" code={`SUI_PRIVATE_KEY=<your key> \\\nPREDICT_PACKAGE_ID=${A.predict.package} \\\npnpm exec tsx examples/deploy-vault.ts\n# → prints { vaultId, execCapId, shareType, … }`} />
+                <CodeBlock lang="bash" filename="2 · activate to yield (deploy PLP)" code={`VAULT_ID=<vaultId> EXEC_CAP=<execCapId> AMOUNT=<dUSDC raw> \\\npnpm exec tsx packages/sdk/scripts/deploy-plp.ts\n# moves idle reserve into DeepBook Predict PLP — the vault now earns base yield`} />
+                <div className="dep-note"><Info size={14} />
+                  One-click in-app deploy runs the same pipeline on Floe&rsquo;s hosted deploy service (Sui CLI + funded
+                  gas), with you set as owner &amp; curator — it activates when the service endpoint is configured.
+                </div>
                 <button className="k-btn k-btn--secondary" onClick={() => setDeployed(false)}>← Back to review</button>
               </div>
             )}
