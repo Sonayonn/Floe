@@ -1,8 +1,14 @@
 packages:
   - 'packages/*'
 
-# Allow these dependencies to run their install/build scripts (native binaries).
-# pnpm 10+ refuses to silently ignore build scripts in CI; listing them here approves them.
+# Approve these dependencies' install/build scripts (native binaries).
+# pnpm 10+ refuses to silently ignore build scripts in CI and exits non-zero
+# unless each is explicitly allowed here.
+allowBuilds:
+  esbuild: true
+  sharp: true
+
+# Kept for pnpm versions that read the allowlist form instead of allowBuilds.
 onlyBuiltDependencies:
   - sharp
   - esbuild
