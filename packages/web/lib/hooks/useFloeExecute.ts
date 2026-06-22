@@ -42,6 +42,7 @@ export function useFloeExecute() {
   return useCallback(
     async (tx: Transaction, opts: FloeExecOpts = {}): Promise<FloeExecResult> => {
       if (!account) throw new Error("No account connected");
+      const sender = account.address; // capture once; narrowing isn't preserved into the nested run() closure
       const label = opts.label ?? "Transaction";
       const toastId = toast.push({ kind: "pending", title: `${label} submitted`, message: "Awaiting confirmation…" });
       const ok = (digest: string): FloeExecResult => {
@@ -73,7 +74,7 @@ export function useFloeExecute() {
             body: JSON.stringify({
               network: "testnet",
               transactionKindBytes: toBase64(kindBytes),
-              sender: account.address,
+              sender,
             }),
           });
           if (!sponsor.ok) throw new Error((await sponsor.json()).error ?? "sponsor failed");
