@@ -52,14 +52,35 @@ export const VAULTS: VaultRef[] = [
 
 export const hexBytes = (h: string) => Array.from(fromHex(h.replace(/^0x/, "")));
 
+/**
+ * Retry an IDEMPOTENT RPC read through a transient network blip. Sui fullnodes drop
+ * sockets under load (UND_ERR_SOCKET / "other side closed"), and a single one must not
+ * abort a multi-vault attest run after earlier vaults already landed. Only safe for reads —
+ * never wrap a signAndExecute, which would risk double-submitting.
+ */
+export async function rpcRetry<T>(fn: () => Promise<T>, tries = 5): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < tries; i++) {
+    try { return await fn(); }
+    catch (e) {
+      lastErr = e;
+      const msg = String((e as any)?.message ?? e) + " " + String((e as any)?.cause?.code ?? "");
+      const transient = /fetch failed|UND_ERR_SOCKET|other side closed|ECONNRESET|ETIMEDOUT|socket hang up|EAI_AGAIN|\b(429|502|503|504)\b/i.test(msg);
+      if (!transient || i === tries - 1) throw e;
+      await new Promise((r) => setTimeout(r, Math.min(500 * 2 ** i, 8000)));
+    }
+  }
+  throw lastErr;
+}
+
 /** Resolve a vault's owned cap (OwnerCap/ExecCap) by paging the holder's objects and
  *  matching the cap's `vault_id` field. Caps keep type `${ORIG}::floe::<Suffix>` across upgrades. */
 export async function resolveCap(client: FloeClient, owner: string, suffix: "OwnerCap" | "ExecCap", vaultId: string): Promise<string> {
   let cursor: string | null | undefined = null;
   for (;;) {
-    const r: any = await client.sui.getOwnedObjects({
+    const r: any = await rpcRetry(() => client.sui.getOwnedObjects({
       owner, filter: { StructType: `${ORIG}::floe::${suffix}` }, options: { showContent: true }, cursor,
-    });
+    }));
     for (const o of r.data ?? []) {
       const f = o.data?.content?.fields;
       if (f?.vault_id === vaultId) return o.data.objectId as string;
@@ -89,10 +110,10 @@ export async function signHeartbeat(vaultId: string, plpPrice: bigint, plpHeld: 
 export async function readPlpCustody(vaultId: string): Promise<bigint> {
   let cursor: string | null | undefined = null;
   for (;;) {
-    const page: any = await floeFounder.sui.getDynamicFields({ parentId: vaultId, cursor });
+    const page: any = await rpcRetry(() => floeFounder.sui.getDynamicFields({ parentId: vaultId, cursor }));
     for (const fld of page.data ?? []) {
       if (String(fld.name?.type ?? "").endsWith("::floe::PlpKey")) {
-        const obj: any = await floeFounder.sui.getObject({ id: fld.objectId, options: { showContent: true } });
+        const obj: any = await rpcRetry(() => floeFounder.sui.getObject({ id: fld.objectId, options: { showContent: true } }));
         const val = obj.data?.content?.fields?.value;
         // Balance<PLP> surfaces as a bare u64 here; tolerate a nested { value } just in case.
         return BigInt(typeof val === "object" && val !== null ? (val.value ?? val.fields?.value ?? 0) : (val ?? 0));
@@ -108,7 +129,7 @@ export async function readPlpCustody(vaultId: string): Promise<bigint> {
  *  price = quote backing / PLP supply. This is the LP NAV-per-share the vault would redeem at;
  *  it is what `plp_price_cached` must hold so `current_nav` values PLP correctly. */
 export async function plpPoolPrice(): Promise<bigint> {
-  const o: any = await floeFounder.sui.getObject({ id: A.predict.object, options: { showContent: true } });
+  const o: any = await rpcRetry(() => floeFounder.sui.getObject({ id: A.predict.object, options: { showContent: true } }));
   const f = o.data?.content?.fields ?? {};
   const balance = BigInt(f.vault?.fields?.balance ?? 0);                              // dUSDC backing the pool
   const supply  = BigInt(f.treasury_cap?.fields?.total_supply?.fields?.value ?? 0);   // PLP in circulation
@@ -118,7 +139,7 @@ export async function plpPoolPrice(): Promise<bigint> {
 
 /** Read a vault's live plp_held (REAL custody) + cached plp_price (drives idle-vs-PLP handling). */
 export async function readVaultPlp(vaultId: string): Promise<{ plpHeld: bigint; plpPrice: bigint }> {
-  const o: any = await floeFounder.sui.getObject({ id: vaultId, options: { showContent: true } });
+  const o: any = await rpcRetry(() => floeFounder.sui.getObject({ id: vaultId, options: { showContent: true } }));
   const f = o.data?.content?.fields ?? {};
   const plpHeld = await readPlpCustody(vaultId); // real PLP balance, not the drift-prone counter
   return { plpHeld, plpPrice: BigInt(f.plp_price_cached ?? 0) };

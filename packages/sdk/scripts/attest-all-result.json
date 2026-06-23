@@ -1,14 +1,14 @@
 {
-  "at": "2026-06-23T00:57:18.046Z",
+  "at": "2026-06-23T19:22:51.255Z",
   "enclaveUrl": "http://32.198.15.18:3000",
-  "pubkey": "4ebb87d280e1e13a66d178278ad6a99ab81177a7d2bd5cfc91bcba8977419e3b",
+  "pubkey": "a368bb1ac4f40d36de2b25df2636ab6ddcb761c3de3689b8d8b8e3eb9dad80d9",
   "pcr0": "b4d532247e4750b239548897063dba140995db04529f9aceea5936f139f2c031e43871b1b69418d86822e72b0f0d6cab",
   "digests": {
-    "Floe Stratos": "BwwotuxjPfBF4rddAYQEub5DxugCoLtGbUJw72hafhQe",
-    "Floe Multi-Venue": "5fjN6UA8BwkhhzFdA9nVv8ALjisZUFBwqV9wi3UE3DUM",
-    "Floe Reserve": "G1XQdxCWV2GUaBqBVzD8NnKTVqy68BmRxDVsRbMHfxjp",
-    "Range Ladder": "4MPPxJ2RQmxhidkp5MBjaGWZ6gvTSYJ1cPvjnPXDDqvp",
-    "Delta-Hedged": "HA5DPM3kRDMZ8QJNqC3FcY3JCgghtevhxEAwzHhQeWYa",
-    "vol:live": "EGX8RdDt4mVsZ3VdFgNoL5eBJ5CN5SqdzDYM39oHxScW"
+    "Floe Stratos": "9gJuStuqLAQ24J4DPrivR9HgcywSb6VoLq4Bp12ZCWNw",
+    "Floe Multi-Venue": "66YVAHwQAQx7M5SCjZY39NGX8r1vXJwHN8ryrD8AZADj",
+    "Floe Reserve": "3dvyY3iUod3B7vypuQWjM3R69WssUT5cvDtsc5hajswV",
+    "Range Ladder": "H6t6JLD3DL2yhHRzsTELih2u9FqG4MDTSzhPFQAZAdVe",
+    "Delta-Hedged": "Cpfqhye5wNbXkWBsDPde8bMSTANNkTS7uVH2Ub4JQiAC",
+    "vol:live": "6qf9V5tuTMnZBv8q7MusjbpCvF5g5NyzHRAK3t8oRbz7"
   }
 }
