@@ -436,7 +436,7 @@ A.package; A.registry; A.refVault; A.nav.enclave; A.lend.refPool;
               </Reveal>
               <Reveal delay={100}>
                 <CodeBlock lang="bash" filename="terminal" code={`# exercise every read surface against testnet
-pnpm exec tsx examples/sdk-tour.ts`} />
+pnpm --filter @floe/sdk exec tsx examples/sdk-tour.ts`} />
               </Reveal>
             </div>
             <Reveal className="dx-foot__cta">

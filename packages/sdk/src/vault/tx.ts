@@ -5,8 +5,10 @@ import type { FloeClient } from '../client.ts';
 import { FLOE_ADDRESSES, type FloeNetwork } from '../constants.ts';
 import { CETUS_TESTNET } from '../venues/cetus-config.ts';
 import { encodeTickU32 } from '../venues/cetus.ts';
+import { SHARE_MODULE } from '../share/bytecode.ts';
 
 const CLOCK = '0x6';
+const DEEPBOOK_PKG = '0xfb28c4cbc6865bd1c897d26aecbe1f8792d1509a20ffec692c800660cbec6982';
 
 export interface VaultTxBase {
   network?: FloeNetwork;
@@ -170,6 +172,175 @@ export async function resolveExecCap(floe: FloeClient, owner: string, vaultId: s
     cursor = r.nextCursor;
   }
   return null;
+}
+
+// ─── In-app vault deploy (browser-signed, 3 wallet txs) ──────────────────────
+// The curator pipeline that FloeVault.deploy runs server-side, re-expressed as
+// browser Transactions for wallet signing. Run in order, reading objectChanges
+// from each result to feed the next:
+//   1) buildPublishShareTx      -> extractPublishedShare  (sharePackageId, shareType, treasuryCapId)
+//   2) buildProvisionManagersTx -> extractManagers        (predictManagerId, balanceManagerId)
+//   3) buildDeployVaultTx       -> extractDeployedVault    (vaultId + caps)
+// Three signatures because each step's freshly-created objects must be indexed
+// before the next can reference them by type/id (the share type for #3 doesn't
+// even exist until #1 lands).
+
+/**
+ * Tx 1 — publish the per-vault SHARE coin package (precompiled generic OTW module).
+ * The module's `init` mints the TreasuryCap<SHARE> + MetadataCap to the sender; the
+ * publish itself returns an UpgradeCap which we hand back to the sender too.
+ */
+export function buildPublishShareTx(sender: string): Transaction {
+  const tx = new Transaction();
+  const upgradeCap = tx.publish({
+    modules: [...SHARE_MODULE.modules],
+    dependencies: [...SHARE_MODULE.dependencies],
+  });
+  tx.transferObjects([upgradeCap], sender);
+  return tx;
+}
+
+/**
+ * Tx 2 — provision the vault's venue managers: a Predict PredictManager (create_manager
+ * transfers it to the sender) and a DeepBook BalanceManager (returned, so we transfer it).
+ * Their ids feed deploy_vault.
+ */
+export function buildProvisionManagersTx(o: { sender: string; predictPackageId: string }): Transaction {
+  const tx = new Transaction();
+  tx.moveCall({ target: `${o.predictPackageId}::predict::create_manager`, arguments: [] });
+  const bm = tx.moveCall({ target: `${DEEPBOOK_PKG}::balance_manager::new`, arguments: [] });
+  tx.moveCall({
+    target: '0x2::transfer::public_transfer',
+    typeArguments: [`${DEEPBOOK_PKG}::balance_manager::BalanceManager`],
+    arguments: [bm, tx.pure.address(o.sender)],
+  });
+  return tx;
+}
+
+export interface DeployVaultPolicyInput {
+  allowedOracles: string[];
+  maxPositionSize: bigint;   // 6dp quote units
+  maxTotalExposure: bigint;  // 6dp
+  maxLeverageBps: number;
+  enabledStrata: number;     // bitmask: PLP=1 | RANGE=2 | HEDGE=4
+  plpFloorBps: number;
+}
+export interface DeployVaultFeesInput {
+  managementBps: number;
+  performanceBps: number;
+  feeRecipient?: string;     // defaults to curator (sender)
+}
+export interface DeployVaultTxInput {
+  network?: FloeNetwork;
+  sender: string;
+  curator?: string;          // defaults to sender; OwnerCap/CuratorCap go here
+  asset: string;             // quote coin type Q
+  shareType: string;         // share type S (from Tx 1)
+  treasuryCapId: string;     // TreasuryCap<S> (from Tx 1)
+  balanceManagerId: string;  // from Tx 2
+  predictManagerId: string;  // from Tx 2
+  name: string;
+  strategyKind?: string;     // default "stratos"
+}
+
+/**
+ * Tx 3 — encode policy + fees and call deploy_vault. Returns (OwnerCap, CuratorCap)
+ * to the curator; deploy_vault also mints + transfers the ExecCap + GuardianCap to the
+ * sender, and shares the Vault. Fee caps (3% / 20%) are enforced on-chain by new_fees.
+ */
+export function buildDeployVaultTx(
+  o: DeployVaultTxInput & { policy: DeployVaultPolicyInput; fees: DeployVaultFeesInput },
+): Transaction {
+  const a = FLOE_ADDRESSES[o.network ?? 'testnet'];
+  const fn = (name: string) => `${a.package}::${a.module}::${name}`;
+  const curator = o.curator ?? o.sender;
+  const tx = new Transaction();
+
+  const policy = tx.moveCall({
+    target: fn('new_policy'),
+    arguments: [
+      tx.makeMoveVec({ type: '0x2::object::ID', elements: o.policy.allowedOracles.map((id) => tx.pure.id(id)) }),
+      tx.pure.u64(o.policy.maxPositionSize),
+      tx.pure.u64(o.policy.maxTotalExposure),
+      tx.pure.u64(BigInt(o.policy.maxLeverageBps)),
+      tx.pure.u8(o.policy.enabledStrata),
+      tx.pure.u64(BigInt(o.policy.plpFloorBps)),
+    ],
+  });
+  const fees = tx.moveCall({
+    target: fn('new_fees'),
+    arguments: [
+      tx.pure.u64(BigInt(o.fees.managementBps)),
+      tx.pure.u64(BigInt(o.fees.performanceBps)),
+      tx.pure.address(o.fees.feeRecipient ?? curator),
+    ],
+  });
+  const [ownerCap, curatorCap] = tx.moveCall({
+    target: fn('deploy_vault'),
+    typeArguments: [o.asset, o.shareType],
+    arguments: [
+      tx.object(a.registry),
+      tx.object(o.treasuryCapId),
+      tx.pure.id(o.balanceManagerId),
+      tx.pure.id(o.predictManagerId),
+      policy,
+      fees,
+      tx.pure.string(o.name),
+      tx.pure.string(o.strategyKind ?? 'stratos'),
+      tx.object(CLOCK),
+    ],
+  });
+  tx.transferObjects([ownerCap, curatorCap], curator);
+  return tx;
+}
+
+// ── objectChanges extractors (run on each step's result before the next) ──────
+type ObjChange = { type?: string; objectType?: string; objectId?: string; packageId?: string };
+const created = (changes: ObjChange[], pred: (t: string) => boolean) =>
+  changes.find((c) => c.type === 'created' && typeof c.objectType === 'string' && pred(c.objectType));
+
+/** Pull the published package, share type, and TreasuryCap id from Tx 1's objectChanges. */
+export function extractPublishedShare(changes: ObjChange[]): {
+  sharePackageId: string; shareType: string; treasuryCapId: string; metadataCapId?: string;
+} {
+  const published = changes.find((c) => c.type === 'published');
+  if (!published?.packageId) throw new Error('share publish: no published package in objectChanges');
+  const sharePackageId = published.packageId;
+  const treasury = created(changes, (t) => t.includes('TreasuryCap') && t.includes('::share::SHARE'));
+  if (!treasury?.objectId) throw new Error('share publish: no TreasuryCap<SHARE> in objectChanges');
+  const metadata = created(changes, (t) => t.includes('MetadataCap'));
+  return {
+    sharePackageId,
+    shareType: `${sharePackageId}::share::SHARE`,
+    treasuryCapId: treasury.objectId,
+    metadataCapId: metadata?.objectId,
+  };
+}
+
+/** Pull the PredictManager + BalanceManager ids from Tx 2's objectChanges. */
+export function extractManagers(changes: ObjChange[]): { predictManagerId: string; balanceManagerId: string } {
+  const pm = created(changes, (t) => t.endsWith('::predict_manager::PredictManager'));
+  const bm = created(changes, (t) => t.endsWith('::balance_manager::BalanceManager'));
+  if (!pm?.objectId || !bm?.objectId) throw new Error('manager provisioning: PredictManager/BalanceManager not found in objectChanges');
+  return { predictManagerId: pm.objectId, balanceManagerId: bm.objectId };
+}
+
+/** Pull the Vault + OwnerCap/CuratorCap/ExecCap ids from Tx 3's objectChanges. */
+export function extractDeployedVault(changes: ObjChange[]): {
+  vaultId: string; ownerCapId: string; curatorCapId: string; execCapId: string;
+} {
+  const vault = created(changes, (t) => t.includes('::floe::Vault<'));
+  const ownerCap = created(changes, (t) => t.endsWith('::floe::OwnerCap'));
+  const curatorCap = created(changes, (t) => t.endsWith('::floe::CuratorCap'));
+  const execCap = created(changes, (t) => t.endsWith('::floe::ExecCap'));
+  if (!vault?.objectId || !ownerCap?.objectId || !curatorCap?.objectId || !execCap?.objectId)
+    throw new Error('deploy_vault: expected Vault + OwnerCap + CuratorCap + ExecCap in objectChanges');
+  return {
+    vaultId: vault.objectId,
+    ownerCapId: ownerCap.objectId,
+    curatorCapId: curatorCap.objectId,
+    execCapId: execCap.objectId,
+  };
 }
 
 /** Withdraw: split `shareAmount` from the user's share coin, call withdraw, return quote to sender. */

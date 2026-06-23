@@ -1,14 +1,18 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import Link from "next/link";
 import { useCurrentAccount } from "@mysten/dapp-kit";
 import {
   Boxes, Layers, TrendingUp, Activity, Coins, ShieldCheck, Gauge, Workflow,
-  PenLine, Cpu, CheckCircle2, ArrowRight, ArrowLeft, Info, Sparkles,
+  PenLine, Cpu, CheckCircle2, ArrowRight, ArrowLeft, Info, Sparkles, Loader2,
+  ExternalLink, AlertTriangle,
 } from "lucide-react";
-import { FLOE_ADDRESSES, FLOE_VENUES, FLOE_ASSETS, assetFor } from "@floe/sdk/browser";
+import { FLOE_ADDRESSES, FLOE_VENUES, assetFor } from "@floe/sdk/browser";
 import { CodeBlock } from "@/components/docs/CodeBlock";
 import { VenueMark } from "@/components/ui/Logo";
 import { shortAddr } from "@/lib/format";
+import { suiTx, suiObject } from "@/lib/explorer";
+import { useDeployVault, type DeployStepKey } from "@/lib/hooks/useDeployVault";
 
 const A = FLOE_ADDRESSES.testnet;
 
@@ -16,6 +20,17 @@ const A = FLOE_ADDRESSES.testnet;
 const Stratum = { PLP: 1, RANGE: 2, HEDGE: 4 } as const;
 const MAX_MGMT_BPS = 300;   // 3 %
 const MAX_PERF_BPS = 2000;  // 20 %
+/* Floe's protocol cut of the curator's fee shares (floe.move:77-78). Comes OUT of the
+ * curator fee — the depositor pays once. Rises to the attested tier when the vault is
+ * marked provable-NAV, which Floe vaults are by default. */
+const PROTOCOL_FEE_DEFAULT_BPS = 1000;   // 10% — pre-attestation
+const PROTOCOL_FEE_ATTESTED_BPS = 1500;  // 15% — attested / provable-NAV (the default tier)
+
+const PIPELINE_LABEL: Record<DeployStepKey, string> = {
+  share: "Publish share coin",
+  managers: "Provision managers",
+  vault: "deploy_vault",
+};
 
 const DUSDC = "0xe95040085976bfd54a1a07225cd46c8a2b4e8e2b6732f140a0fc49850ba73e1a::dusdc::DUSDC";
 
@@ -28,19 +43,19 @@ const STRATA = [
 const STEPS = ["Strategy", "Venues & strata", "Risk policy", "Fees", "Review"];
 
 const PIPELINE = [
-  { icon: PenLine, t: "Publish share coin", d: "A per-vault SHARE coin is published via coin_registry (Sui CLI / Node)." },
+  { icon: PenLine, t: "Publish share coin", d: "A per-vault SHARE coin is published via coin_registry — signed in your wallet." },
   { icon: Cpu, t: "Provision managers", d: "A PredictManager + BalanceManager are created for the vault's venues." },
   { icon: Boxes, t: "deploy_vault", d: "The vault is deployed with your encoded policy + fees and listed in the registry." },
 ];
 
 export default function DeployPage() {
   const account = useCurrentAccount();
+  const deploy = useDeployVault();
   const [step, setStep] = useState(0);
-  const [deployed, setDeployed] = useState(false);
+  const showPipeline = deploy.running || !!deploy.result || !!deploy.error;
 
   // strategy
   const [name, setName] = useState("");
-  const [symbol, setSymbol] = useState("");
   const [asset] = useState(DUSDC);
   // venues & strata
   const [venues, setVenues] = useState<string[]>(["deepbook", "idle"]);
@@ -55,15 +70,37 @@ export default function DeployPage() {
   const [perfBps, setPerfBps] = useState(1500);
 
   const qMeta = assetFor(asset);
-  const recipient = account?.address ?? "<your address>";
 
   const posN = parseFloat(maxPositionSize) || 0;
   const expN = parseFloat(maxTotalExposure) || 0;
 
+  // Effective fee split: Floe takes its protocol cut OUT of the curator's fee shares
+  // (depositor pays once). Provable-NAV vaults sit on the attested tier by default.
+  const curatorKeepBps = 10_000 - PROTOCOL_FEE_ATTESTED_BPS; // 85%
+  const effPerf = (perfBps / 100) * (curatorKeepBps / 10_000);
+  const effMgmt = (mgmtBps / 100) * (curatorKeepBps / 10_000);
+
+  async function launchDeploy() {
+    if (!account) return;
+    await deploy.run({
+      asset,
+      name: name.trim() || "My Vault",
+      predictPackageId: A.predict.package,
+      policy: {
+        allowedOracles: [A.predict.btcOracle],
+        maxPositionSize: BigInt(Math.floor(posN * 1e6)),
+        maxTotalExposure: BigInt(Math.floor(expN * 1e6)),
+        maxLeverageBps,
+        enabledStrata: strata,
+        plpFloorBps,
+      },
+      fees: { managementBps: mgmtBps, performanceBps: perfBps, feeRecipient: account.address },
+    });
+  }
+
   // ── per-step validity ───────────────────────────────────────────────
-  const symbolOk = /^[A-Z0-9]{2,6}$/.test(symbol);
   const valid = [
-    name.trim().length >= 2 && symbolOk,
+    name.trim().length >= 2,
     venues.includes("deepbook") && (strata & Stratum.PLP) !== 0,
     posN > 0 && expN >= posN && maxLeverageBps >= 10000,
     mgmtBps <= MAX_MGMT_BPS && perfBps <= MAX_PERF_BPS,
@@ -96,7 +133,6 @@ const floe = new FloeClient({ network: "testnet", signer });
 const vault = await FloeVault.deploy(floe, {
   asset:  "${asset}",
   name:   "${name || "My Vault"}",
-  symbol: "${symbol || "MYV"}",
   policy: {
     allowedOracles:   ["${A.predict.btcOracle}"],
     maxPositionSize:  ${big(posN)},
@@ -146,14 +182,10 @@ const vault = await FloeVault.deploy(floe, {
             {/* STEP 0 — strategy */}
             {step === 0 && (
               <div className="dep-fields">
-                <Head icon={Sparkles} t="Strategy & identity" d="Name your vault and its share token. Stratos is the flagship premium-harvesting strategy." />
+                <Head icon={Sparkles} t="Strategy & identity" d="Name your vault. Stratos is the flagship premium-harvesting strategy." />
                 <Field label="Vault name" hint="Shown in the Earn directory">
                   <input className="dep-input" value={name} maxLength={40}
                     onChange={(e) => setName(e.target.value)} placeholder="e.g. Stratos Prime" />
-                </Field>
-                <Field label="Share symbol" hint="2–6 chars · A–Z, 0–9" error={symbol.length > 0 && !symbolOk ? "Use 2–6 uppercase letters/digits" : undefined}>
-                  <input className="dep-input" value={symbol} maxLength={6}
-                    onChange={(e) => setSymbol(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} placeholder="MYV" />
                 </Field>
                 <Field label="Quote asset" hint="What depositors bring & the vault values in">
                   <div className="dep-asset">
@@ -239,51 +271,102 @@ const vault = await FloeVault.deploy(floe, {
                 <Field label="Fee recipient" hint="Defaults to your connected wallet">
                   <div className="dep-recipient">{account ? shortAddr(account.address) : "Connect a wallet to set"}</div>
                 </Field>
+
+                {/* Protocol-fee disclosure — Floe's cut comes OUT of the curator fee, not on top. */}
+                <div className="dep-feesplit">
+                  <div className="dep-feesplit__head">
+                    <span className="floe-eyebrow">How the fee splits</span>
+                    <span className="dep-feesplit__tag">depositor pays once</span>
+                  </div>
+                  <p className="dep-feesplit__note">
+                    Floe takes a protocol cut <strong>out of your fee shares</strong> — never on top of what
+                    depositors pay. It&rsquo;s {PROTOCOL_FEE_DEFAULT_BPS / 100}% before attestation and{" "}
+                    {PROTOCOL_FEE_ATTESTED_BPS / 100}% once your vault is provable-NAV (the default tier).
+                  </p>
+                  <div className="dep-feesplit__bars">
+                    <FeeBar label="Performance" headline={perfBps / 100} youKeep={effPerf} protocolBps={PROTOCOL_FEE_ATTESTED_BPS} />
+                    <FeeBar label="Management" headline={mgmtBps / 100} youKeep={effMgmt} protocolBps={PROTOCOL_FEE_ATTESTED_BPS} />
+                  </div>
+                </div>
               </div>
             )}
 
             {/* STEP 4 — review */}
-            {step === 4 && !deployed && (
+            {step === 4 && !showPipeline && (
               <div className="dep-fields">
                 <Head icon={ShieldCheck} t="Review & deploy" d="This is the exact configuration that will be encoded on-chain. Caps are enforced by the contract." />
                 <CodeBlock lang="ts" filename="deploy.ts" code={config} />
-                {!account && <div className="dep-note dep-note--warn"><Info size={14} /> Connect your wallet to deploy — you'll be the vault owner & curator.</div>}
+                <div className="dep-note"><Info size={14} />
+                  Deploy runs entirely in your wallet — <strong>three signatures</strong>: publish your vault&rsquo;s
+                  share coin, provision its venue managers, then <code>deploy_vault</code>. You end up as owner &amp;
+                  curator, holding the OwnerCap, CuratorCap and ExecCap. No CLI, no server key.
+                </div>
+                {!account && <div className="dep-note dep-note--warn"><Info size={14} /> Connect your wallet to deploy — you&rsquo;ll be the vault owner &amp; curator.</div>}
               </div>
             )}
 
-            {/* deployed — pipeline result */}
-            {step === 4 && deployed && (
+            {/* STEP 4 — live deploy pipeline (running / done / error) */}
+            {step === 4 && showPipeline && (
               <div className="dep-fields">
-                <Head icon={Boxes} t="Deployment pipeline" d="Vault creation runs a 3-transaction curator pipeline. Your configuration is ready." />
+                <Head icon={Boxes} t="Deployment pipeline"
+                  d="A 3-signature curator pipeline, signed in your wallet. Each step waits for the previous to settle on-chain." />
                 <div className="dep-pipeline">
-                  {PIPELINE.map((p, i) => {
-                    const Icon = p.icon;
-                    return (
-                      <div className="dep-pl" key={p.t}>
-                        <span className="dep-pl__icon"><Icon size={16} /></span>
-                        <div className="dep-pl__meta"><span className="dep-pl__t">{i + 1}. {p.t}</span><span className="dep-pl__d">{p.d}</span></div>
+                  {deploy.steps.map((s, i) => (
+                    <div className={`dep-pl dep-pl--${s.status}`} key={s.key}>
+                      <span className="dep-pl__icon">
+                        {s.status === "done" ? <CheckCircle2 size={16} />
+                          : s.status === "active" ? <Loader2 size={16} className="dep-spin" />
+                          : s.status === "error" ? <AlertTriangle size={16} />
+                          : i + 1}
+                      </span>
+                      <div className="dep-pl__meta">
+                        <span className="dep-pl__t">{i + 1}. {PIPELINE_LABEL[s.key]}</span>
+                        <span className="dep-pl__d">{PIPELINE[i].d}</span>
                       </div>
-                    );
-                  })}
+                      {s.digest && (
+                        <a className="dep-pl__link" href={suiTx(s.digest)} target="_blank" rel="noreferrer" title="View transaction">
+                          <ExternalLink size={13} />
+                        </a>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                <div className="dep-note"><Info size={14} />
-                  The per-vault SHARE coin is published through the Sui CLI (a server step), so the pipeline runs with a
-                  signer rather than in the browser. Run the two commands below: the first deploys your vault with the exact
-                  config above; the second <strong>activates it to yield</strong> so it earns from day one instead of sitting idle.
-                </div>
-                <CodeBlock lang="bash" filename="1 · deploy your vault" code={`SUI_PRIVATE_KEY=<your key> \\\nPREDICT_PACKAGE_ID=${A.predict.package} \\\npnpm exec tsx examples/deploy-vault.ts\n# → prints { vaultId, execCapId, shareType, … }`} />
-                <CodeBlock lang="bash" filename="2 · activate to yield (deploy PLP)" code={`VAULT_ID=<vaultId> EXEC_CAP=<execCapId> AMOUNT=<dUSDC raw> \\\npnpm exec tsx packages/sdk/scripts/deploy-plp.ts\n# moves idle reserve into DeepBook Predict PLP — the vault now earns base yield`} />
-                <div className="dep-note"><Info size={14} />
-                  One-click in-app deploy runs the same pipeline on Floe&rsquo;s hosted deploy service (Sui CLI + funded
-                  gas), with you set as owner &amp; curator — it activates when the service endpoint is configured.
-                </div>
-                <button className="k-btn k-btn--secondary" onClick={() => setDeployed(false)}>← Back to review</button>
+
+                {deploy.error && (
+                  <div className="dep-note dep-note--warn"><AlertTriangle size={14} /> {deploy.error.slice(0, 200)}</div>
+                )}
+
+                {deploy.result && (
+                  <>
+                    <div className="dep-result">
+                      <div className="dep-result__head"><CheckCircle2 size={15} /> Vault live on testnet</div>
+                      <ResultRow label="Vault" value={deploy.result.vaultId} href={suiObject(deploy.result.vaultId)} />
+                      <ResultRow label="Share coin" value={deploy.result.sharePackageId} href={suiObject(deploy.result.sharePackageId)} />
+                      <ResultRow label="ExecCap" value={deploy.result.execCapId} href={suiObject(deploy.result.execCapId)} />
+                      <ResultRow label="OwnerCap" value={deploy.result.ownerCapId} href={suiObject(deploy.result.ownerCapId)} />
+                    </div>
+                    <div className="dep-note"><Info size={14} />
+                      Your vault starts idle and earns nothing until it&rsquo;s funded. Open it, make the first deposit,
+                      then use the operator <strong>Deploy idle → PLP</strong> action (you hold the ExecCap) to put it to work.
+                    </div>
+                    <div className="dep-resultcta">
+                      <Link href={`/earn/${deploy.result.vaultId}`} className="k-btn k-btn--primary">
+                        Open your vault <ArrowRight size={15} />
+                      </Link>
+                      <Link href="/earn" className="k-btn k-btn--secondary">Browse directory</Link>
+                    </div>
+                  </>
+                )}
+
+                {deploy.error && !deploy.running && (
+                  <button className="k-btn k-btn--secondary" onClick={deploy.reset}>← Back to review</button>
+                )}
               </div>
             )}
           </div>
 
           {/* nav */}
-          {!(step === 4 && deployed) && (
+          {!(step === 4 && showPipeline) && (
             <div className="dep-nav">
               <button className="k-btn k-btn--ghost" disabled={step === 0} onClick={() => setStep((s) => Math.max(0, s - 1))}>
                 <ArrowLeft size={15} /> Back
@@ -293,8 +376,8 @@ const vault = await FloeVault.deploy(floe, {
                   Continue <ArrowRight size={15} />
                 </button>
               ) : (
-                <button className="k-btn k-btn--primary" disabled={!allValid || !account}
-                  onClick={() => setDeployed(true)}>
+                <button className="k-btn k-btn--primary" disabled={!allValid || !account || deploy.running}
+                  onClick={launchDeploy}>
                   <Boxes size={15} /> {account ? "Deploy vault" : "Connect wallet to deploy"}
                 </button>
               )}
@@ -311,7 +394,7 @@ const vault = await FloeVault.deploy(floe, {
                 <span className="dep-pcard__mark"><VenueMark venueKey="usdc" size={20} /></span>
                 <div>
                   <div className="dep-pcard__name">{name || "My Vault"}</div>
-                  <div className="dep-pcard__sym">{symbol || "MYV"} · {qMeta.symbol}</div>
+                  <div className="dep-pcard__sym">{qMeta.symbol} vault</div>
                 </div>
                 <span className="k-tag k-tag--positive" style={{ marginLeft: "auto" }}>Proven NAV</span>
               </div>
@@ -390,6 +473,33 @@ function Slider({ label, hint, value, min, max, step, fmt, onChange }: {
       <input className="dep-slider" type="range" min={min} max={max} step={step} value={value}
         style={{ ["--pct" as string]: `${pct}%` }} onChange={(e) => onChange(Number(e.target.value))} />
       {hint && <span className="dep-field__hint">{hint}</span>}
+    </div>
+  );
+}
+function FeeBar({ label, headline, youKeep, protocolBps }: { label: string; headline: number; youKeep: number; protocolBps: number }) {
+  const keepPct = 100 - protocolBps / 100; // 85% on the attested tier
+  return (
+    <div className="dep-feebar">
+      <div className="dep-feebar__top">
+        <span className="dep-feebar__label">{label} · {headline.toFixed(headline % 1 ? 2 : 0)}%</span>
+        <span className="dep-feebar__eff">you net ≈ {youKeep.toFixed(2)}%</span>
+      </div>
+      <div className="dep-feebar__track">
+        <span className="dep-feebar__keep" style={{ width: `${keepPct}%` }} />
+        <span className="dep-feebar__proto" style={{ width: `${100 - keepPct}%` }} />
+      </div>
+      <div className="dep-feebar__legend">
+        <span><i className="dep-dot dep-dot--keep" /> you {keepPct.toFixed(0)}%</span>
+        <span><i className="dep-dot dep-dot--proto" /> Floe {(protocolBps / 100).toFixed(0)}%</span>
+      </div>
+    </div>
+  );
+}
+function ResultRow({ label, value, href }: { label: string; value: string; href: string }) {
+  return (
+    <div className="dep-result__row">
+      <span className="dep-result__k">{label}</span>
+      <a className="dep-result__v" href={href} target="_blank" rel="noreferrer">{shortAddr(value)} <ExternalLink size={11} /></a>
     </div>
   );
 }

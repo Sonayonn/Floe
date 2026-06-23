@@ -45,7 +45,10 @@ export const FLOE_ADDRESSES = {
       // V2 (PCR-anchored): collateral valuations verify against the on-chain Enclave<FLOE_NAV>
       // object (nav.enclave) via enclave::verify_signature — no stored attester, picks up every
       // enclave boot automatically. Fresh publish (prior stored-pubkey pkg 0x5135… superseded).
-      package:           '0xf6369fc6efee055518be693cf8d3e084ca5a21a9f7a2f21ab855514cb95d7686',
+      // V2.1: compatible upgrade adding the VAULT-READ borrow path (lock_and_borrow_from_vault,
+      // liquidate_from_vault, health_factor_from_vault_bps) so the browser borrows with just an RPC
+      // read + wallet sig, no enclave round-trip. Supersedes 0xf6369fc6 (module/pools/upgradeCap unchanged).
+      package:           '0xf2b149a30e95cc2292a67260e867c9e5a221917a3eac3a15f28c1f91fcb117a6',
       module:            'floe_lend',
       collateralIntent:  3,     // CollateralPayload — same intent as floe_nav
       valuationFreshMs:  600000, // 10-min window (matches VALUATION_FRESH_MS)

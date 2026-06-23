@@ -10,10 +10,14 @@ import { isEnokiWallet } from "@mysten/enoki";
 import { ENOKI_ENABLED } from "@/lib/enoki";
 import { useToast } from "@/components/ui/Toast";
 
-export type FloeExecResult = { digest: string };
+export type FloeExecResult = { digest: string; objectChanges?: unknown[] };
 
 /** Optional label for the toast, e.g. "Deposit", "Borrow". Defaults to "Transaction". */
-export interface FloeExecOpts { label?: string }
+export interface FloeExecOpts {
+  label?: string;
+  /** Refetch the confirmed block's objectChanges (needed by multi-step flows like deploy). */
+  collectObjectChanges?: boolean;
+}
 
 // One-shot health check of the sponsorship backend (needs the server-only private key), cached for
 // the session so we don't probe on every transaction.
@@ -45,9 +49,11 @@ export function useFloeExecute() {
       const sender = account.address; // capture once; narrowing isn't preserved into the nested run() closure
       const label = opts.label ?? "Transaction";
       const toastId = toast.push({ kind: "pending", title: `${label} submitted`, message: "Awaiting confirmation…" });
-      const ok = (digest: string): FloeExecResult => {
+      const ok = async (digest: string): Promise<FloeExecResult> => {
         toast.update(toastId, { kind: "success", title: `${label} confirmed`, message: undefined, digest });
-        return { digest };
+        if (!opts.collectObjectChanges) return { digest };
+        const blk = await client.waitForTransaction({ digest, options: { showObjectChanges: true, showEffects: true } });
+        return { digest, objectChanges: blk.objectChanges ?? [] };
       };
       const fail = (e: unknown): never => {
         const raw = (e as Error)?.message ?? "Transaction failed";

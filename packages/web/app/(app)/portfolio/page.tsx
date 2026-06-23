@@ -3,9 +3,9 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { ArrowRight, ArrowUpRight, ExternalLink, ShieldCheck, Wallet } from "lucide-react";
 import { useCurrentAccount, useSuiClientQuery } from "@mysten/dapp-kit";
+import { normalizeStructTag } from "@mysten/sui/utils";
 import { useVaults, type VaultRow } from "@/lib/hooks/useVaults";
 import { useLendMarket } from "@/lib/hooks/useLendMarket";
-import { useCoins } from "@/lib/hooks/useCoins";
 import { ProofBadge, type VaultSafety } from "@/components/ui/ProofBadge";
 import { OfficialBadge } from "@/components/ui/OfficialBadge";
 import { AssetBadge } from "@/components/ui/AssetBadge";
@@ -19,6 +19,21 @@ const A = FLOE_ADDRESSES.testnet;
 const Q = A.refVaultQType; // dUSDC (borrow asset)
 const S = A.refVaultSType; // flShare (vault share = collateral)
 const LEND = A.lend;
+
+/** One holding = the wallet's shares in a single vault, valued at that vault's own attested floor. */
+type Holding = {
+  vault: VaultRow;
+  shares: bigint;
+  floorPerShare: bigint;
+  fullPerShare: bigint;
+  floorValue: bigint;
+  fullValue: bigint;
+};
+
+/** Normalize a coin/struct tag for map keys; fall back to the raw string if it can't parse. */
+function safeTag(t: string): string {
+  try { return normalizeStructTag(t); } catch { return t; }
+}
 
 /** Health factor = collateralValue × liqThreshold / debt. >1 solvent; <1 liquidatable. */
 function healthFactor(collateralValue: bigint, debt: bigint, liqThresholdBps: bigint): number {
@@ -51,9 +66,39 @@ export default function PortfolioPage() {
       : 0n;
   const fullPerShare = shareVault?.sharePrice ?? 0n;
 
-  // wallet balances
-  const { total: walletShares } = useCoins(addr, S);
-  const { total: walletDusdc } = useCoins(addr, Q);
+  // wallet balances — one RPC call, then match each vault's share type (sType differs per vault, never hardcode)
+  const balancesQ = useSuiClientQuery(
+    "getAllBalances",
+    { owner: addr ?? "" },
+    { enabled: !!addr, refetchInterval: 20_000 }
+  );
+  const balanceByType = useMemo(() => {
+    const m = new Map<string, bigint>();
+    for (const b of balancesQ.data ?? []) m.set(safeTag(b.coinType), BigInt(b.totalBalance));
+    return m;
+  }, [balancesQ.data]);
+  const walletDusdc = balanceByType.get(safeTag(Q)) ?? 0n;
+  // free flShare (the refVault share type = the asset you borrow against in Floe Lend)
+  const walletShares = balanceByType.get(safeTag(S)) ?? 0n;
+
+  // Every vault the wallet holds shares in — each valued at its OWN attested floor.
+  const holdings = useMemo<Holding[]>(() => {
+    return (vaults ?? [])
+      .map((v): Holding | null => {
+        const shares = balanceByType.get(safeTag(v.sType)) ?? 0n;
+        if (shares <= 0n) return null;
+        const floorPS = v.shareSupply > 0n ? (v.navLowerBound * 1_000_000n) / v.shareSupply : 0n;
+        return {
+          vault: v,
+          shares,
+          floorPerShare: floorPS,
+          fullPerShare: v.sharePrice,
+          floorValue: (shares * floorPS) / 1_000_000n,
+          fullValue: (shares * v.sharePrice) / 1_000_000n,
+        };
+      })
+      .filter((h): h is Holding => h !== null);
+  }, [vaults, balanceByType]);
 
   // open borrow positions (DebtPosition<Q,S> owned by the user, in the live pool)
   const debtType = `${LEND.package}::${LEND.module}::DebtPosition<${Q}, ${S}>`;
@@ -83,8 +128,9 @@ export default function PortfolioPage() {
   }, [owned.data, floorPerShare]);
 
   // ── aggregate equity (floor basis — what you can prove you own) ──
-  const positionFull = (walletShares * fullPerShare) / 1_000_000n;
-  const positionFloor = (walletShares * floorPerShare) / 1_000_000n;
+  // Sum across EVERY vault the wallet holds shares in — each valued at its own attested floor.
+  const positionFull = holdings.reduce((s, h) => s + h.fullValue, 0n);
+  const positionFloor = holdings.reduce((s, h) => s + h.floorValue, 0n);
   const lockedShares = positions.reduce((s, p) => s + p.collateral, 0n);
   const lockedFloor = positions.reduce((s, p) => s + p.collateralValue, 0n);
   const lockedFull = (lockedShares * fullPerShare) / 1_000_000n;
@@ -97,7 +143,7 @@ export default function PortfolioPage() {
 
   const sMeta = assetFor(S);
   const qMeta = assetFor(Q);
-  const hasShares = walletShares > 0n;
+  const hasShares = holdings.length > 0;
   const hasBorrows = positions.length > 0;
   const hasAnything = hasShares || walletDusdc > 0n || hasBorrows;
 
@@ -186,31 +232,38 @@ export default function PortfolioPage() {
                 <div className="floe-panel__title">Vault shares</div>
                 <div className="floe-panel__sub">redeemable at the proven floor</div>
               </div>
-              {hasShares && shareVault ? (
-                <div className="pf-pos">
-                  <div className="pf-pos__top">
-                    <AssetBadge symbol={qMeta.symbol} size={32} showSymbol={false} />
-                    <div className="pf-pos__id">
-                      <span className="pf-pos__name">
-                        {shareVault.name}
-                        {isOfficial(shareVault.curator) && <OfficialBadge />}
-                      </span>
-                      <span className="pf-pos__sub">{shareVault.strategyKind || "structured"} · {shortAddr(shareVault.curator)}</span>
-                    </div>
-                    <ProofBadge label={shareVault.navSafetyLabel as VaultSafety} fresh={shareVault.navFresh} size="sm" />
-                  </div>
-                  <div className="pf-pos__grid">
-                    <Stat k={`${sMeta.symbol} held`} v={fmt6(walletShares)} />
-                    <Stat k="Proven floor" v={fmt6(positionFloor)} accent sub={qMeta.symbol} />
-                    <Stat k="Full value" v={fmt6(positionFull)} sub={qMeta.symbol} />
-                    <Stat k="Share price" v={fmt6(fullPerShare, 4)} sub={`floor ${fmt6(floorPerShare, 4)}`} />
-                  </div>
-                  <div className="pf-pos__actions">
-                    <Link href={`/earn/${shareVault.vaultId}`} className="k-btn k-btn--secondary k-btn--sm">
-                      Manage <ArrowUpRight size={14} />
-                    </Link>
-                    <Link href="/borrow" className="k-btn k-btn--ghost k-btn--sm">Borrow against shares</Link>
-                  </div>
+              {hasShares ? (
+                <div className="pf-holdings">
+                  {holdings.map((h) => {
+                    const hsMeta = assetFor(h.vault.sType);
+                    return (
+                      <div className="pf-pos" key={h.vault.vaultId}>
+                        <div className="pf-pos__top">
+                          <AssetBadge symbol={qMeta.symbol} size={32} showSymbol={false} />
+                          <div className="pf-pos__id">
+                            <span className="pf-pos__name">
+                              {h.vault.name}
+                              {isOfficial(h.vault.curator) && <OfficialBadge />}
+                            </span>
+                            <span className="pf-pos__sub">{h.vault.strategyKind || "structured"} · {shortAddr(h.vault.curator)}</span>
+                          </div>
+                          <ProofBadge label={h.vault.navSafetyLabel as VaultSafety} fresh={h.vault.navFresh} size="sm" />
+                        </div>
+                        <div className="pf-pos__grid">
+                          <Stat k={`${hsMeta.symbol} held`} v={fmt6(h.shares)} />
+                          <Stat k="Proven floor" v={fmt6(h.floorValue)} accent sub={qMeta.symbol} />
+                          <Stat k="Full value" v={fmt6(h.fullValue)} sub={qMeta.symbol} />
+                          <Stat k="Share price" v={fmt6(h.fullPerShare, 4)} sub={`floor ${fmt6(h.floorPerShare, 4)}`} />
+                        </div>
+                        <div className="pf-pos__actions">
+                          <Link href={`/earn/${h.vault.vaultId}`} className="k-btn k-btn--secondary k-btn--sm">
+                            Manage <ArrowUpRight size={14} />
+                          </Link>
+                          <Link href="/borrow" className="k-btn k-btn--ghost k-btn--sm">Borrow against shares</Link>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="pf-empty">

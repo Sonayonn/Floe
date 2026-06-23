@@ -5,6 +5,12 @@ export { FLOE_ADDRESSES, FLOE_VERSION, type FloeNetwork, FLOE_VENUES, FLOE_ASSET
 export { getVaultState, getNav, getSharePrice, isAttested, type VaultState } from './vault/read.ts';
 export { listVaults, type VaultSummary } from './registry/read.ts';
 export { buildDepositTx, buildWithdrawTx, buildDeployPlpTx, buildDeployCetusTx, resolveExecCap, type VaultTxBase } from './vault/tx.ts';
+// In-app vault deploy — browser-signed 3-tx curator pipeline + objectChanges extractors.
+export {
+  buildPublishShareTx, buildProvisionManagersTx, buildDeployVaultTx,
+  extractPublishedShare, extractManagers, extractDeployedVault,
+  type DeployVaultTxInput, type DeployVaultPolicyInput, type DeployVaultFeesInput,
+} from './vault/tx.ts';
 
 // Floe Index — on-chain implied volatility. Browser-safe reads (devInspect / object reads, no signer).
 export {
