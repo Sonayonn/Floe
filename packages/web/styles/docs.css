@@ -6,6 +6,13 @@
 
 /* ── 3-column shell ───────────────────────────────────────────────────── */
 .dx { display: grid; grid-template-columns: 270px 1fr; max-width: 1560px; margin: 0 auto; min-height: 100vh; position: relative; }
+
+/* Reveal backstop — docs content must never stay invisible when the scroll-reveal
+   observer can't fire (static/full-page render, crawlers, print). RevealFailsafe
+   adds .dx-reveal-ready after first paint; print needs no JS. Landing is untouched
+   (it never renders RevealFailsafe and these rules are scoped to .dx). */
+html.dx-reveal-ready .dx .lp-reveal { opacity: 1; transform: none; }
+@media print { .dx .lp-reveal { opacity: 1 !important; transform: none !important; } }
 .dx-main { display: grid; grid-template-columns: minmax(0, 1fr) 240px; min-width: 0; }
 .dx-content { width: 100%; min-width: 0; max-width: 900px; margin: 0 auto; padding: 0 var(--space-8) var(--space-10); }
 @media (max-width: 1200px) { .dx-main { grid-template-columns: minmax(0, 1fr); } .dx-toc { display: none; } }

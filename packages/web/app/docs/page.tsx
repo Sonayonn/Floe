@@ -8,6 +8,7 @@ import { Reveal } from "@/components/landing/Reveal";
 import { Interactions } from "@/components/landing/Interactions";
 import { CodeBlock } from "@/components/docs/CodeBlock";
 import { DocsSidebar } from "@/components/docs/DocsSidebar";
+import { RevealFailsafe } from "@/components/docs/RevealFailsafe";
 import { OnThisPage } from "@/components/docs/OnThisPage";
 import { ArchitectureDiagram } from "@/components/docs/ArchitectureDiagram";
 import { HeroConsole } from "@/components/docs/HeroConsole";
@@ -58,6 +59,7 @@ export default function Docs() {
   return (
     <div className="dx">
       <Interactions />
+      <RevealFailsafe />
       <DocsSidebar />
 
       <div className="dx-main">
