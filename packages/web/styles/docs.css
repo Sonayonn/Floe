@@ -9,7 +9,45 @@
 .dx-main { display: grid; grid-template-columns: minmax(0, 1fr) 240px; min-width: 0; }
 .dx-content { width: 100%; min-width: 0; max-width: 900px; margin: 0 auto; padding: 0 var(--space-8) var(--space-10); }
 @media (max-width: 1200px) { .dx-main { grid-template-columns: minmax(0, 1fr); } .dx-toc { display: none; } }
-@media (max-width: 900px) { .dx { grid-template-columns: 1fr; } .dx-side { display: none; } }
+@media (max-width: 900px) { .dx { grid-template-columns: 1fr; } }
+
+/* ── mobile: sidebar becomes a slide-in drawer with a floating toggle ───── */
+.dx-side__toggle { display: none; }
+.dx-side__scrim { display: none; }
+@media (max-width: 900px) {
+  .dx-side__toggle {
+    position: fixed; left: var(--space-5); bottom: var(--space-6); z-index: 45;
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 16px; border-radius: var(--radius-pill);
+    border: 1px solid var(--accent-line);
+    background: linear-gradient(180deg, rgba(20, 24, 30, 0.96), rgba(14, 17, 22, 0.96));
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    color: var(--text); font-size: var(--text-sm); font-weight: 600;
+    box-shadow: var(--shadow-lg), 0 0 24px -10px var(--accent-glow);
+  }
+  .dx-side__toggle svg { color: var(--accent); }
+  .dx-side__scrim {
+    display: block; position: fixed; inset: 0; z-index: 46; border: none; padding: 0;
+    background: rgba(5, 6, 9, 0.68);
+    backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+    animation: dx-mob-fade var(--dur-2) var(--ease);
+  }
+  .dx-side {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 47;
+    width: min(84vw, 320px); height: 100vh;
+    transform: translateX(-100%);
+    transition: transform var(--dur-2) var(--ease);
+    background: linear-gradient(180deg, rgba(15, 18, 24, 0.99), rgba(11, 13, 17, 0.99));
+    border-right: 1px solid var(--hairline);
+    box-shadow: var(--shadow-lg);
+  }
+  .dx-side.is-open { transform: none; }
+}
+@keyframes dx-mob-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .dx-side { transition: none; }
+  .dx-side__scrim { animation: none; }
+}
 
 /* ── left sidebar ─────────────────────────────────────────────────────── */
 .dx-side { position: sticky; top: 0; height: 100vh; overflow-y: auto; border-right: 1px solid var(--hairline); padding: var(--space-6) var(--space-5) var(--space-8); background: rgba(12, 14, 18, 0.42); }
